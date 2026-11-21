@@ -531,9 +531,12 @@ class _RegionSection extends StatelessWidget {
                 ),
               ),
             ),
-          // `bmkgForecast != null` diulang di sini agar analyzer
-          // mempromosikan tipenya (showingBmkg saja tidak cukup).
-          if (showingBmkg && bmkgForecast != null) ...[
+          // `showingBmkg` sudah menyiratkan `bmkgForecast != null`
+          // (didefinisikan di atas sebagai `... && bmkgForecast != null`),
+          // jadi analyzer mempromosikan tipenya tanpa pengulangan
+          // (komentar lama yang mengulang cek null justru memicu
+          // warning unnecessary_null_comparison — dihapus).
+          if (showingBmkg) ...[
             BmkgForecastBody(forecast: bmkgForecast),
             DataSourceFooter(
               source: 'BMKG',
