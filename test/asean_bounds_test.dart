@@ -88,8 +88,11 @@ void main() {
 
   test('zoom fit bbox 49° pada layar HP 400 px = 3,52', () {
     // Span bujur terlihat = 360 * lebarPx / (256 * 2^z).
-    final fitZoom =
-        math.log2(360 * 400 / (256 * (AppConstants.aseanEast - AppConstants.aseanWest)));
+    // dart:math tidak punya log2 — pakai log natural / ln2.
+    final fitZoom = math.log(
+          360 * 400 / (256 * (AppConstants.aseanEast - AppConstants.aseanWest)),
+        ) /
+        math.ln2;
     expect(fitZoom, closeTo(3.52, 0.01));
     // Zoom minimum harus DI BAWAH zoom fit agar bingkai awal
     // (CameraFit.bounds) selalu tercapai pada layar HP.

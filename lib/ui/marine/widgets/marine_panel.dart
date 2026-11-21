@@ -11,6 +11,7 @@ import '../../../utils/formatters.dart';
 import '../../../utils/nav_math.dart';
 import '../../core/widgets/data_source_footer.dart';
 import '../view_models/marine_viewmodel.dart';
+import 'bmkg_region_sheet.dart';
 
 /// Panel Gelombang (R-15): Open-Meteo Marine 3 hari + arus/swell/SST.
 /// Titik darat -> pesan "tidak ada data", BUKAN 0.
@@ -407,6 +408,13 @@ class _MarineRow extends StatelessWidget {
 /// Marine di TITIK TENGAH wilayah itu. UI menulis eksplisit bahwa ini
 /// ramalan titik tengah, BUKAN rata-rata wilayah, beserta koordinat
 /// titiknya. Ramalan titik posisi user di atas tidak tersentuh.
+///
+/// Ronde 2 fase 2: wilayah berkode BMKG (M.xx) JUGA memuat prakiraan
+/// resmi BMKG untuk SELURUH wilayah perairan itu — tampil default
+/// bila tersedia (sumber resmi), dengan pemilih sumber
+/// "BMKG (resmi)" vs "Open-Meteo" bila kedua sumber ada datanya.
+/// Bila BMKG gagal/kosong, panel jatuh ke Open-Meteo + catatan.
+/// Wilayah tanpa kode BMKG (SCS/GOT/ANDA): Open-Meteo saja.
 class _RegionSection extends StatelessWidget {
   const _RegionSection({required this.vm});
 
@@ -418,6 +426,9 @@ class _RegionSection extends StatelessWidget {
     final region = vm.selectedRegion;
     final regionForecast = vm.regionForecast;
     final regionCurrent = regionForecast?.current;
+    final bmkgForecast = vm.bmkgRegionForecast;
+    final showingBmkg =
+        vm.regionSource == RegionWaveSource.bmkg && bmkgForecast != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -428,8 +439,8 @@ class _RegionSection extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Pilih satu wilayah laut — ramalan dari Open-Meteo Marine '
-          'di titik tengah wilayah.',
+          'Pilih satu wilayah laut — prakiraan resmi BMKG bila '
+          'tersedia, atau Open-Meteo Marine di titik tengah wilayah.',
           style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
         ),
         const SizedBox(height: 8),
@@ -464,12 +475,49 @@ class _RegionSection extends StatelessWidget {
               color: scheme.onSurfaceVariant,
             ),
           ),
-          const Text(
-            'Ramalan titik tengah wilayah — bukan rata-rata seluruh wilayah.',
-            style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+          Text(
+            showingBmkg
+                ? 'Prakiraan resmi BMKG untuk wilayah perairan ini.'
+                : 'Ramalan titik tengah wilayah — bukan rata-rata seluruh wilayah.',
+            style: const TextStyle(
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+            ),
           ),
           const SizedBox(height: 8),
-          if (vm.regionLoading && regionForecast == null)
+          if (vm.regionSourcePickerVisible)
+            SegmentedButton<RegionWaveSource>(
+              segments: const [
+                ButtonSegment<RegionWaveSource>(
+                  value: RegionWaveSource.bmkg,
+                  label: Text('BMKG (resmi)'),
+                ),
+                ButtonSegment<RegionWaveSource>(
+                  value: RegionWaveSource.openMeteo,
+                  label: Text('Open-Meteo'),
+                ),
+              ],
+              selected: {vm.regionSource},
+              onSelectionChanged: (selection) {
+                if (selection.isNotEmpty) {
+                  vm.setRegionSource(selection.first);
+                }
+              },
+            ),
+          if (vm.bmkgRegionErrorMessage != null &&
+              bmkgForecast == null &&
+              regionForecast != null)
+            Text(
+              'Prakiraan BMKG tidak tersedia saat ini — memakai '
+              'Open-Meteo.',
+              style: TextStyle(
+                fontSize: 12,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          if ((vm.regionLoading || vm.bmkgRegionLoading) &&
+              regionForecast == null &&
+              bmkgForecast == null)
             const Center(
               child: Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
@@ -483,47 +531,61 @@ class _RegionSection extends StatelessWidget {
                 ),
               ),
             ),
-          if (vm.regionErrorMessage != null && regionForecast == null)
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(vm.regionErrorMessage!, textAlign: TextAlign.center),
-                  const SizedBox(height: 8),
-                  FilledButton(
-                    onPressed: vm.refreshRegion,
-                    child: const Text('Coba lagi'),
-                  ),
-                ],
-              ),
-            ),
-          if (regionForecast != null) ...[
-            if (!regionForecast.hasData)
-              const Text(
-                'Tidak ada data gelombang untuk titik tengah wilayah ini.',
-              ),
-            if (regionCurrent != null) ...[
-              _CurrentMarine(
-                hour: regionCurrent,
-                category: regionCurrent.waveHeightM == null
-                    ? null
-                    : bmkgWaveCategory(regionCurrent.waveHeightM!),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Per 3 jam (3 hari)',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              ...regionForecast.every3Hours.map(_MarineRow.new),
-            ],
+          // `bmkgForecast != null` diulang di sini agar analyzer
+          // mempromosikan tipenya (showingBmkg saja tidak cukup).
+          if (showingBmkg && bmkgForecast != null) ...[
+            BmkgForecastBody(forecast: bmkgForecast),
             DataSourceFooter(
-              source: 'Open-Meteo Marine',
-              fetchedAt: regionForecast.fetchedAt,
-              isStale: regionForecast.isStale,
+              source: 'BMKG',
+              fetchedAt: bmkgForecast.fetchedAt,
+              isStale: bmkgForecast.isStale,
               onRefresh: vm.refreshRegion,
-              refreshing: vm.regionLoading,
+              refreshing: vm.regionLoading || vm.bmkgRegionLoading,
             ),
+          ] else ...[
+            if (vm.regionErrorMessage != null && regionForecast == null)
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(vm.regionErrorMessage!,
+                        textAlign: TextAlign.center),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      onPressed: vm.refreshRegion,
+                      child: const Text('Coba lagi'),
+                    ),
+                  ],
+                ),
+              ),
+            if (regionForecast != null) ...[
+              if (!regionForecast.hasData)
+                const Text(
+                  'Tidak ada data gelombang untuk titik tengah wilayah ini.',
+                ),
+              if (regionCurrent != null) ...[
+                _CurrentMarine(
+                  hour: regionCurrent,
+                  category: regionCurrent.waveHeightM == null
+                      ? null
+                      : bmkgWaveCategory(regionCurrent.waveHeightM!),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Per 3 jam (3 hari)',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                ...regionForecast.every3Hours.map(_MarineRow.new),
+              ],
+              DataSourceFooter(
+                source: 'Open-Meteo Marine',
+                fetchedAt: regionForecast.fetchedAt,
+                isStale: regionForecast.isStale,
+                onRefresh: vm.refreshRegion,
+                refreshing: vm.regionLoading || vm.bmkgRegionLoading,
+              ),
+            ],
           ],
         ],
         const SizedBox(height: 8),

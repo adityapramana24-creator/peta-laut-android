@@ -494,6 +494,15 @@ class MapViewModel extends ChangeNotifier {
     );
   }
 
+  /// Saklar marker rambu laut OSM (ronde 2, butir 20): tersimpan di
+  /// LayerSettings, cermin toggleDepthLabels. BERBEDA dari
+  /// toggleSeamark (tile raster OpenSeaMap).
+  Future<void> toggleSeamarkMarkers(bool value) async {
+    await _settingsService.setLayerSettings(
+      layers.copyWith(showSeamarkMarkers: value),
+    );
+  }
+
   Future<void> toggleAis(bool value) async {
     await _settingsService
         .setLayerSettings(layers.copyWith(showAis: value));

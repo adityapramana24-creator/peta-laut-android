@@ -84,6 +84,7 @@ class LayerSettings {
     this.showGibs = false,
     this.showAis = true,
     this.showDepthLabels = true,
+    this.showSeamarkMarkers = true,
   });
 
   final BasemapKind basemap;
@@ -96,6 +97,12 @@ class LayerSettings {
   /// Label angka kedalaman di peta (F-L9, default nyala).
   final bool showDepthLabels;
 
+  /// Marker rambu laut dari data OSM (ronde 2, butir 20 — default
+  /// nyala). BERBEDA dari [showSeamark]: itu tile raster OpenSeaMap
+  /// (gambar saja, tidak bisa ditekan); ini marker vektor yang bisa
+  /// ditekan untuk detail. Keduanya lapisan terpisah.
+  final bool showSeamarkMarkers;
+
   LayerSettings copyWith({
     BasemapKind? basemap,
     bool? showGebco,
@@ -104,6 +111,7 @@ class LayerSettings {
     bool? showGibs,
     bool? showAis,
     bool? showDepthLabels,
+    bool? showSeamarkMarkers,
   }) {
     return LayerSettings(
       basemap: basemap ?? this.basemap,
@@ -113,6 +121,7 @@ class LayerSettings {
       showGibs: showGibs ?? this.showGibs,
       showAis: showAis ?? this.showAis,
       showDepthLabels: showDepthLabels ?? this.showDepthLabels,
+      showSeamarkMarkers: showSeamarkMarkers ?? this.showSeamarkMarkers,
     );
   }
 }

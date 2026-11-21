@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../../config/app_constants.dart';
 import '../../../data/repositories/depth_repository.dart';
 import '../../../data/repositories/offline_repository.dart';
+import '../../../data/services/seamark_service.dart';
 import '../../../data/services/settings_service.dart';
 import '../../../domain/models/ais_target_status.dart';
 import '../../../domain/models/map_layers.dart';
@@ -23,7 +24,10 @@ import '../../core/widgets/own_ship_marker.dart';
 import '../../core/widgets/safety_banner.dart';
 import '../../core/widgets/ship_marker.dart';
 import '../../core/widgets/version_stamp.dart';
+import '../../marine/view_models/bmkg_maritim_viewmodel.dart';
 import '../../marine/view_models/marine_viewmodel.dart';
+import '../../marine/widgets/bmkg_region_sheet.dart';
+import '../../marine/widgets/bmkg_wave_markers.dart';
 import '../../marine/widgets/marine_panel.dart';
 import '../../more/widgets/more_sheet.dart';
 import '../../navigation/view_models/navigation_viewmodel.dart';
@@ -45,6 +49,7 @@ import '../../windy/widgets/windy_panel.dart';
 import '../view_models/map_viewmodel.dart';
 import 'depth_labels_overlay.dart';
 import 'depth_sheet.dart';
+import 'seamark_marker_layer.dart';
 import 'layers_sheet.dart';
 import 'long_press_sheet.dart';
 import 'manual_position_dialog.dart';
@@ -104,6 +109,7 @@ class _MapScreenState extends State<MapScreen> {
     final windy = context.watch<WindyViewModel>();
     final offline = context.watch<OfflineViewModel>();
     final settings = context.watch<SettingsService>();
+    final bmkgWaves = context.watch<BmkgMaritimViewModel>();
     final layers = vm.layers;
     final scheme = Theme.of(context).colorScheme;
     _currentBasemap = layers.basemap.name;
@@ -328,8 +334,31 @@ class _MapScreenState extends State<MapScreen> {
                       PolylineLayer(
                         polylines: _buildPolylines(nav),
                       ),
+                      // Marker rambu laut OSM (ronde 2, butir 20):
+                      // di atas poliline, di bawah marker waypoint/
+                      // kapal AIS. Selalu terpasang (enabled mengatur
+                      // tampil/tidaknya, pola DepthLabelsOverlay).
+                      SeamarkMarkerLayer(
+                        service: context.read<SeamarkService>(),
+                        bounds: vm.visibleBounds,
+                        zoom: vm.zoom,
+                        centerLat: vm.center.latitude,
+                        centerLon: vm.center.longitude,
+                        rotationDeg: vm.rotation,
+                        enabled: layers.showSeamarkMarkers,
+                      ),
                       MarkerLayer(
                         markers: _buildMarkers(vm, nav),
+                      ),
+                      // Marker gelombang BMKG (ronde 2 fase 2).
+                      BmkgWaveMarkers(
+                        forecasts: bmkgWaves.forecasts,
+                        onRegionTap: (region, forecast) =>
+                            showBmkgRegionSheet(
+                          context,
+                          region: region,
+                          forecast: forecast,
+                        ),
                       ),
                       RichAttributionWidget(
                         attributions: [
@@ -345,6 +374,11 @@ class _MapScreenState extends State<MapScreen> {
                           if (layers.showSeamark)
                             const TextSourceAttribution(
                               'OpenSeaMap',
+                              onTap: null,
+                            ),
+                          if (layers.showSeamarkMarkers)
+                            const TextSourceAttribution(
+                              'Rambu: © OpenStreetMap contributors',
                               onTap: null,
                             ),
                         ],
@@ -1587,6 +1621,7 @@ class _BottomPanelBar extends StatelessWidget {
               point: vm.panelPoint,
               viewModel: MarineViewModel(
                 repository: context.read(),
+                bmkgRepository: context.read(),
               ),
             ),
           ),

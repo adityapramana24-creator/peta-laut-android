@@ -20,6 +20,7 @@ class SettingsService extends ChangeNotifier {
   static const _keyShowGibs = 'show_gibs';
   static const _keyShowAis = 'show_ais';
   static const _keyShowDepthLabels = 'show_depth_labels';
+  static const _keyShowSeamarkMarkers = 'show_seamark_markers';
   static const _keyFirstUseHintShown = 'first_use_hint_shown';
   static const _keyCruiseSpeedKnots = 'cruise_speed_knots';
 
@@ -62,6 +63,7 @@ class SettingsService extends ChangeNotifier {
       showGibs: _prefs.getBool(_keyShowGibs) ?? false,
       showAis: _prefs.getBool(_keyShowAis) ?? true,
       showDepthLabels: _prefs.getBool(_keyShowDepthLabels) ?? true,
+      showSeamarkMarkers: _prefs.getBool(_keyShowSeamarkMarkers) ?? true,
     );
   }
 
@@ -73,6 +75,10 @@ class SettingsService extends ChangeNotifier {
     await _prefs.setBool(_keyShowGibs, settings.showGibs);
     await _prefs.setBool(_keyShowAis, settings.showAis);
     await _prefs.setBool(_keyShowDepthLabels, settings.showDepthLabels);
+    await _prefs.setBool(
+      _keyShowSeamarkMarkers,
+      settings.showSeamarkMarkers,
+    );
     notifyListeners();
   }
 

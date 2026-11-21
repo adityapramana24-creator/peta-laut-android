@@ -66,6 +66,13 @@ class WindyViewModel extends ChangeNotifier {
   String? _forecastError;
   bool _pickMode = false;
 
+  /// Peringatan ambang cuaca (R-30, F-L5): dimuat dari repository
+  /// di konstruktor, disimpan kembali ke repository di tiap
+  /// perubahan (add/update/delete/toggle + setelah evaluasi yang
+  /// memperbarui lastTriggeredAt). Timer 15 menit mengevaluasi
+  /// ulang daftar ini terhadap prakiraan segar di posisi kapal.
+  List<WeatherAlert> _alerts = [];
+
   /// Penyedia posisi kapal sendiri untuk timer peringatan (F-L5):
   /// dipasang MapScreen dari MapViewModel (`() => vm.ownPosition`).
   /// Null = posisi tidak diketahui -> timer jatuh ke evaluasi

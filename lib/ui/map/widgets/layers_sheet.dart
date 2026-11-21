@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../domain/models/map_layers.dart';
+import '../../../domain/models/seamark.dart';
 import '../view_models/map_viewmodel.dart';
 import 'gebco_legend.dart';
 
@@ -92,6 +93,27 @@ class LayersSheet extends StatelessWidget {
               value: layers.showSeamark,
               onChanged: vm.toggleSeamark,
             ),
+            SwitchListTile(
+              title: const Text('Rambu laut (data OSM, bisa ditekan)'),
+              subtitle: const Text(
+                'Marker rambu dari OpenStreetMap (zoom 12 ke atas) — '
+                'ketuk marker untuk nama, jenis, cahaya, dan posisi.',
+              ),
+              value: layers.showSeamarkMarkers,
+              onChanged: vm.toggleSeamarkMarkers,
+            ),
+            if (layers.showSeamarkMarkers)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Text(
+                  Seamark.coverageNote,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
             SwitchListTile(
               title: const Text('Radar hujan'),
               subtitle: const Text('RainViewer — data ~10 menit terakhir'),

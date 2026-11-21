@@ -84,6 +84,14 @@ class AppConstants {
       'https://www.bmkg.go.id/peringatan-dini/gelombang-tinggi';
   static const String aisSignupUrl = 'https://aisstream.io/';
 
+  /// Halaman resmi Berita Pelaut Indonesia (BPI) Pushidrosal —
+  /// unduhan PDF koreksi mingguan Peta Laut Indonesia (narasi
+  /// koreksi, bukan dataset — tautan ini yang dipakai lembar detail
+  /// rambu sebagai "Cek BPI terbaru").
+  /// Terverifikasi live 21 Nov 2026: berisi tautan edisi terbaru
+  /// (Minggu ke-43 Tahun 2026) + tabel arsip edisi.
+  static const String bpiUrl = 'https://www.pushidrosal.id/layanan/bpi';
+
   // -- URL tile (semua terverifikasi live, lihat report.md) --
   static const String osmDeTemplate =
       'https://tile.openstreetmap.de/{z}/{x}/{y}.png';
