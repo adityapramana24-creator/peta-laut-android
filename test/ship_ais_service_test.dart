@@ -170,6 +170,13 @@ void main() {
       );
       expect(result, isA<Ok<void>>());
       expect(service.isConnected, isTrue);
+      // Pompa antrean event sekali: event 'connected' di-emit ke
+      // broadcast stream secara asinkron dan belum tentu terkirim
+      // saat connect() kembali (event 'connecting' sempat terkirim
+      // karena ada jeda I/O Socket.connect di antaranya). Pola yang
+      // sama dipakai test lain di file ini sebelum assert atas nilai
+      // dari stream. Bukan bug state — field isConnected sudah true.
+      await Future<void>.delayed(Duration.zero);
       expect(states, contains(ShipAisConnectionState.connected));
 
       final client = await clientCompleter.future;

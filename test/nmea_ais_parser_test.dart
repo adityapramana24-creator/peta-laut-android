@@ -287,8 +287,14 @@ void main() {
 
   group('round-trip encode pyais -> decode parser', () {
     test('tipe 2', () {
+      // Kalimat ini DI-ENCODE pyais 3.3.1 (21 Nov 2026) dari field
+      // yang sama — BUKAN kalimat lama: kalimat lama
+      // '17lcR4gP1s7Wem1tOhB3fk01P000' decode pyais = msg_type 1
+      // (6 bit pertama = 1), jadi ekspektasi tipe 2-nya salah data,
+      // bukan salah parser. Encode pyais tipe 2 menghasilkan persis
+      // kalimat di bawah (karakter pertama '2', checksum *2A).
       final r = feedOne(
-        '!AIVDO,1,1,,A,17lcR4gP1s7Wem1tOhB3fk01P000,0*29',
+        '!AIVDO,1,1,,A,27lcR4gP1s7Wem1tOhB3fk01P000,0*2A',
       );
       expect(r.messageType, 2);
       expectPosition(
