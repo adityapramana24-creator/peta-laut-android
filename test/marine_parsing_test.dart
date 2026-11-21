@@ -119,7 +119,8 @@ void main() {
     final hours = PointForecast.parseForecastHourly(decoded);
     expect(hours.length, 2);
     expect(hours[0].tempC, 29.0);
-    expect(hours[0].windKnots, closeTo(10, 0.01));
+    // 18,5 km/jam = 9,989 knot (18,5 / 1,852) — bukan 10 knot.
+    expect(hours[0].windKnots, closeTo(9.99, 0.01));
     expect(hours[1].precipitationMm, 1.2);
     expect(hours[1].pressureHpa, 1009.0);
   });

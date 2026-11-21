@@ -77,8 +77,8 @@ void main() {
     final rainy = forecast.days[0][1];
     expect(rainy.condition, 'Hujan Ringan');
     expect(rainy.rainMm, 2.5);
-    // 18.5 km/jam = 10 knot.
-    expect(rainy.windKnots, closeTo(10, 0.01));
+    // 18.5 km/jam = 9,989 knot (18,5 / 1,852) — bukan 10 knot.
+    expect(rainy.windKnots, closeTo(9.99, 0.01));
   });
 
   test('slot rusak dilewati, sisanya tetap dipakai', () {
@@ -115,6 +115,6 @@ void main() {
     final restored = BmkgForecast.fromCacheJson(forecast.toJson());
     expect(restored.days.length, 3);
     expect(restored.days[0][1].condition, 'Hujan Ringan');
-    expect(restored.days[0][1].windKnots, closeTo(10, 0.01));
+    expect(restored.days[0][1].windKnots, closeTo(9.99, 0.01));
   });
 }
