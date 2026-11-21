@@ -77,7 +77,7 @@ jobs:
       - name: Gradle wrapper (regenerasi bila jar tidak ada)
         run: |
           if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
-            cd android && gradle wrapper --gradle-version 8.7
+            cd android && gradle wrapper --gradle-version 9.1.0
           fi
 
       - name: Generate launcher icons (logo base64 -> mipmap PNG)
