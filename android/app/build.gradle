@@ -1,7 +1,8 @@
 plugins {
     id "com.android.application"
-    id "kotlin-android"
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // AGP 9.0+ sudah menyertakan dukungan Kotlin bawaan — plugin
+    // kotlin-android TIDAK BOLEH diterapkan lagi (build gagal bila ada).
+    // The Flutter Gradle Plugin must be applied after the Android Gradle plugin.
     id "dev.flutter.flutter-gradle-plugin"
 }
 
