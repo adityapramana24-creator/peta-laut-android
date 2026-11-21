@@ -8,7 +8,11 @@ plugins {
 
 android {
     namespace = "id.prasmanan.petalaut"
-    compileSdk = flutter.compileSdkVersion
+    // compileSdk 37: plugin permission_handler_android menuntut compile
+    // terhadap API 37+ (AAR metadata check, run #13) — flutter default
+    // masih 36. Naik compileSdk saja; targetSdk + minSdk TIDAK berubah
+    // (compileSdk, targetSdk, minSdk adalah tiga hal terpisah).
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
