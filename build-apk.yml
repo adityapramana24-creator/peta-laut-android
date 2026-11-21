@@ -1,0 +1,118 @@
+# Build APK Peta Laut (Flutter) — GitHub Actions.
+#
+# ASUMSI LOKASI: file ini berada di root repo, yaitu isi direktori app/
+# di-push sebagai root repo. Bila repo justru menyimpan app/ sebagai
+# subdirektori, PINDAHKAN file ini ke .github/workflows/ di root repo
+# dan tambahkan:
+#   defaults:
+#     run:
+#       working-directory: app
+# serta sesuaikan path upload-artifact / release menjadi
+# app/build/app/outputs/flutter-apk/app-release.apk.
+#
+# Alur: pub get -> build_runner (codegen Drift) -> analyze -> test
+# -> build apk release -> upload artifact. Setiap push ke main juga
+# menerbitkan APK sebagai GitHub Release tag `latest` (tautan unduhan
+# permanen: .../releases/download/latest/app-release.apk), karena
+# artifact Actions tidak bisa diunduh tanpa login. Push tag v*
+# (mis. v1.1.0) tetap membuat release berversi seperti biasa.
+#
+# CATATAN BINARY: push via GitHub connector (MCP push_files) hanya
+# membawa file teks (snapshot UTF-8). File biner TIDAK ada di repo:
+# - logo webp -> base64 di lib/config/logo_data.dart (splash pakai
+#   Image.memory); ikon launcher di-generate langkah "Generate launcher
+#   icons" di bawah dari base64 yang sama (PIL).
+# - gradle-wrapper.jar -> langkah "Gradle wrapper" di bawah meregenerasi
+#   jar bila tidak ada (runner ubuntu-latest menyediakan Gradle).
+#
+# Pilihan release: softprops/action-gh-release — action rilis paling
+# luas dipakai (puluhan ribu repo), terawat, membuat release + upload
+# aset dalam satu langkah dengan GITHUB_TOKEN bawaan (tanpa secret
+# tambahan). Alternatif upload-artifact saja dipertimbangkan, tapi
+# tidak memberi user satu tautan unduhan APK yang permanen.
+
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+# contents:write dibutuhkan action-gh-release untuk membuat release.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Gradle wrapper (regenerasi bila jar tidak ada)
+        run: |
+          if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
+            cd android && gradle wrapper --gradle-version 8.7
+          fi
+
+      - name: Generate launcher icons (logo base64 -> mipmap PNG)
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 tools/generate_icons.py
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Codegen Drift (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build APK release
+        run: flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: peta-laut-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - name: Release APK latest (setiap push main)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Peta Laut APK — latest (main)
+          body: |
+            Build terbaru dari branch main (Flutter, Android).
+            BUKAN pengganti navigasi resmi kapal — selalu pakai chart resmi untuk navigasi.
+          files: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Release APK (hanya untuk tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true
