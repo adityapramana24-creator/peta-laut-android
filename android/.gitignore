@@ -1,0 +1,15 @@
+/.gradle
+/captures/
+/local.properties
+GeneratedPluginRegistrant.java
+
+# Remember to never publicly share your keystore.
+# See https://flutter.dev/to/reference-keystore
+key.properties
+**/*.keystore
+**/*.jks
+
+# CATATAN PETA LAUT: gradlew, gradlew.bat, dan gradle-wrapper.jar
+# SENGAJA TIDAK di-ignore (berbeda dengan template standar).
+# Proyek ini dibangun di GitHub Actions tanpa SDK lokal, jadi wrapper
+# Gradle harus ikut ter-commit agar `flutter build apk` jalan di CI.

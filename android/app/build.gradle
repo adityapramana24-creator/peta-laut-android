@@ -1,0 +1,53 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace = "id.prasmanan.petalaut"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+        // Desugaring: flutter_local_notifications memakai API java.time
+        // yang baru ada di API 26+; minSdk 24 butuh desugaring agar
+        // kelas-kelas itu tersedia di Android 7–8.
+        coreLibraryDesugaringEnabled = true
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        applicationId = "id.prasmanan.petalaut"
+        // minSdk 24 (Android 7.0): di atas minimum semua plugin yang dipakai
+        // (geolocator, permission_handler, flutter_secure_storage).
+        minSdk = 24
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    buildTypes {
+        release {
+            // TODO (sebelum Play Store): buat keystore release sendiri +
+            // signingConfigs.release (lihat skill flutter-app-engineering §12).
+            // Untuk sideload CI saat ini, release ditandatangani kunci debug
+            // (pola template standar) agar APK langsung bisa diinstal.
+            signingConfig = signingConfigs.debug
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+}

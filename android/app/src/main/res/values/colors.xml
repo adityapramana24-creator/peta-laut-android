@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Biru laut gelap — senada logo + splash screen Flutter. -->
+    <color name="sea_dark">#0A2239</color>
+</resources>
