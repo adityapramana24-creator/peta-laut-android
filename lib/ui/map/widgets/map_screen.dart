@@ -7,8 +7,10 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../../../config/app_constants.dart';
+import '../../../data/repositories/depth_repository.dart';
 import '../../../data/repositories/offline_repository.dart';
 import '../../../data/services/settings_service.dart';
+import '../../../domain/models/ais_target_status.dart';
 import '../../../domain/models/map_layers.dart';
 import '../../../utils/formatters.dart';
 import '../../../utils/nav_math.dart';
@@ -36,9 +38,12 @@ import '../../tides/widgets/tides_panel.dart';
 import '../../weather/view_models/weather_viewmodel.dart';
 import '../../weather/widgets/weather_panel.dart';
 import '../../windy/view_models/windy_viewmodel.dart';
+import '../../windy/widgets/current_arrows.dart';
+import '../../windy/widgets/wind_legend.dart';
 import '../../windy/widgets/wind_particles.dart';
 import '../../windy/widgets/windy_panel.dart';
 import '../view_models/map_viewmodel.dart';
+import 'depth_labels_overlay.dart';
 import 'depth_sheet.dart';
 import 'layers_sheet.dart';
 import 'long_press_sheet.dart';
@@ -59,12 +64,29 @@ class _MapScreenState extends State<MapScreen> {
   late final SavedAreaTileProvider _savedAreaProvider;
   String _currentBasemap = 'standard';
 
+  /// Batas kamera ASEAN (ronde 2, item 6) — dipakai
+  /// CameraConstraint.contain + initialCameraFit.
+  static final _aseanBounds = LatLngBounds(
+    const LatLng(
+      AppConstants.aseanSouth,
+      AppConstants.aseanWest,
+    ),
+    const LatLng(
+      AppConstants.aseanNorth,
+      AppConstants.aseanEast,
+    ),
+  );
+
   @override
   void initState() {
     super.initState();
     final vm = context.read<MapViewModel>();
     vm.attachController(_mapController);
     WidgetsBinding.instance.addPostFrameCallback((_) => vm.init());
+    // F-L5: timer peringatan cuaca memakai posisi sendiri terbaru
+    // (bukan titik prakiraan terakhir yang basi).
+    context.read<WindyViewModel>().ownPositionProvider =
+        () => vm.ownPosition;
     // Offline: siapkan direktori area tersimpan + polling status.
     final offlineRepo = context.read<OfflineRepository>();
     unawaited(offlineRepo.warmUpBaseDir());
@@ -131,6 +153,45 @@ class _MapScreenState extends State<MapScreen> {
         });
       }
     }
+    // Panah arus: pola yang sama dengan grid angin (muat otomatis
+    // saat aktif tapi grid belum ada; muat ulang bila peta bergeser
+    // jauh dari tengah grid).
+    if (windy.currentsEnabled &&
+        windy.currentGrid == null &&
+        !windy.currentGridLoading &&
+        vm.visibleBounds != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (windy.currentsEnabled &&
+            windy.currentGrid == null &&
+            !windy.currentGridLoading &&
+            vm.visibleBounds != null) {
+          windy.loadCurrentGrid(vm.visibleBounds!);
+        }
+      });
+    }
+    final currentGrid = windy.currentGrid;
+    if (windy.currentsEnabled &&
+        currentGrid != null &&
+        !windy.currentGridLoading &&
+        vm.visibleBounds != null) {
+      final gridCenterLat = (currentGrid.south + currentGrid.north) / 2;
+      final gridCenterLon = (currentGrid.west + currentGrid.east) / 2;
+      final distFromGrid = NavMath.distanceMeters(
+        vm.center.latitude,
+        vm.center.longitude,
+        gridCenterLat,
+        gridCenterLon,
+      );
+      if (distFromGrid > 200000) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (windy.currentsEnabled &&
+              !windy.currentGridLoading &&
+              vm.visibleBounds != null) {
+            windy.loadCurrentGrid(vm.visibleBounds!);
+          }
+        });
+      }
+    }
     // Tata letak vertikal bergeser bila timeline tampil.
     final chipsBottom = timelineVisible ? 132.0 : 76.0;
     final recordingBottom = timelineVisible ? 164.0 : 108.0;
@@ -149,17 +210,30 @@ class _MapScreenState extends State<MapScreen> {
                     mapController: _mapController,
                     options: MapOptions(
                       initialCenter: const LatLng(
-                        AppConstants.defaultLat,
-                        AppConstants.defaultLon,
+                        AppConstants.aseanCenterLat,
+                        AppConstants.aseanCenterLon,
                       ),
-                      initialZoom: AppConstants.defaultZoom,
-                      minZoom: AppConstants.minZoom,
+                      initialZoom: AppConstants.aseanInitialZoom,
+                      // Bingkai pertama = seluruh ASEAN persis
+                      // (mengalahkan initialCenter/initialZoom).
+                      initialCameraFit: CameraFit.bounds(
+                        bounds: _aseanBounds,
+                        padding: EdgeInsets.zero,
+                      ),
+                      // Kamera tidak boleh keluar ASEAN (flutter_map
+                      // CameraConstraint.contain — tepi kamera di
+                      // dalam bounds; terverifikasi di dokumentasi
+                      // pub.dev flutter_map).
+                      cameraConstraint: CameraConstraint.contain(
+                        bounds: _aseanBounds,
+                      ),
+                      minZoom: AppConstants.aseanMinZoom,
                       maxZoom: AppConstants.maxZoom,
                       onMapReady: () => vm.onMapReady(),
                       onPositionChanged: vm.onCameraChanged,
                       onTap: (_, point) => _onMapTap(vm, point),
                       onLongPress: (_, point) =>
-                          showLongPressSheet(context, point),
+                          _onMapLongPress(context, point),
                     ),
                     children: [
                       if (isNight)
@@ -183,10 +257,15 @@ class _MapScreenState extends State<MapScreen> {
                           tileProvider: _savedAreaProvider,
                           userAgentPackageName: AppConstants.packageId,
                         ),
-                      // GEBCO_LATEST_2 tidak transparan — redupkan agar
-                      // basemap di bawahnya tetap terbaca.
+                      // GEBCO_LATEST_2 tidak transparan (WMS
+                      // mengembalikan warna batimetri di SELURUH
+                      // laut + darat) — lapisan ini menutupi peta
+                      // dasar dengan warna biru. Diagnosis item 2:
+                      // opacity 0,55 terlalu pekat; 0,32 cukup untuk
+                      // membaca pola kedalaman tanpa menutup basemap.
+                      // Tetap bisa dimatikan dari lembar Lapisan.
                       if (layers.showGebco)
-                        Opacity(opacity: 0.55, child: _gebcoLayer()),
+                        Opacity(opacity: 0.32, child: _gebcoLayer()),
                       if (layers.showSeamark)
                         TileLayer(
                           urlTemplate: AppConstants.seamarkTemplate,
@@ -197,6 +276,9 @@ class _MapScreenState extends State<MapScreen> {
                           opacity: 0.7,
                           child: TileLayer(
                             urlTemplate: vm.rainTemplate!,
+                            // F-R3: zoom maks RainViewer = 7
+                            // (terbatas sejak 1 Jan 2026).
+                            maxNativeZoom: 7,
                             userAgentPackageName: AppConstants.packageId,
                           ),
                         ),
@@ -281,6 +363,44 @@ class _MapScreenState extends State<MapScreen> {
                         rotationDeg: vm.rotation,
                       ),
                     ),
+                  // Panah arus (di atas partikel).
+                  if (windy.currentsEnabled && windy.currentGrid != null)
+                    Positioned.fill(
+                      child: CurrentArrowsOverlay(
+                        grid: windy.currentGrid!,
+                        hourIndex: windy.hourIndex,
+                        centerLat: vm.center.latitude,
+                        centerLon: vm.center.longitude,
+                        zoom: vm.zoom,
+                        rotationDeg: vm.rotation,
+                      ),
+                    ),
+                  // Label angka kedalaman (paling atas di antara
+                  // overlay data agar teks terbaca). Saklarnya
+                  // tersimpan di LayerSettings (F-L9).
+                  Positioned.fill(
+                    child: DepthLabelsOverlay(
+                      repository: context.read<DepthRepository>(),
+                      bounds: vm.visibleBounds,
+                      zoom: vm.zoom,
+                      centerLat: vm.center.latitude,
+                      centerLon: vm.center.longitude,
+                      rotationDeg: vm.rotation,
+                      enabled: vm.layers.showDepthLabels,
+                    ),
+                  ),
+                  // Legenda skala warna angin/arus (kanan, di atas
+                  // stempel versi; sembunyi bila keduanya mati).
+                  Positioned(
+                    right: 12,
+                    bottom: chipsBottom + 26,
+                    child: WindCurrentLegendCard(
+                      showWind: windy.particlesEnabled &&
+                          windy.grid != null,
+                      showCurrent: windy.currentsEnabled &&
+                          windy.currentGrid != null,
+                    ),
+                  ),
                   // Notifikasi satu slot.
                   Positioned(
                     top: 8,
@@ -422,6 +542,23 @@ class _MapScreenState extends State<MapScreen> {
                       bottom: chipsBottom,
                       child: _PositionChip(vm: vm, nav: nav),
                     ),
+                  // Chip kecepatan (kiri bawah, di atas chip posisi
+                  // — dan di atas chip merekam bila sedang merekam):
+                  // HANYA tampil saat bergerak (SOG > 1 kt).
+                  // Alasan posisi: sudut kiri bawah adalah tumpukan
+                  // chip yang sudah ada (posisi + merekam), jadi
+                  // chip kecepatan menumpuk rapi di atasnya tanpa
+                  // menutupi marker/legenda; kanan atas ditempati
+                  // dial kompas + tombol, kanan bawah legenda angin
+                  // + stempel versi, kiri atas banner status.
+                  if (nav.sogKnots != null && nav.sogKnots! > 1.0)
+                    Positioned(
+                      left: 12,
+                      bottom:
+                          (nav.isRecording ? recordingBottom : chipsBottom) +
+                              30,
+                      child: _SpeedChip(sogKnots: nav.sogKnots!),
+                    ),
                   // Timeline partikel angin.
                   if (timelineVisible)
                     Positioned(
@@ -474,6 +611,13 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   TileLayer _gebcoLayer() {
+    // RONDE 2 (item tumpang-tindih, S-7): WMS diminta dalam EPSG:3857
+    // — SAMA dengan CRS peta (flutter_map default). Sebelumnya EPSG:4326:
+    // server mengembalikan citra equirectangular yang lalu direntangkan
+    // ke tile Mercator, sehingga garis pantai/kontur GEBCO BERGESER dari
+    // basemap (paling kentara di zoom rendah, tile besar) dan terlihat
+    // seperti peta ganda. GEBCO WMS mendukung EPSG:3857 (GetCapabilities
+    // terverifikasi live 21 Nov 2026).
     return TileLayer(
       wmsOptions: WMSTileLayerOptions(
         baseUrl: AppConstants.gebcoWmsBase,
@@ -481,7 +625,7 @@ class _MapScreenState extends State<MapScreen> {
         format: 'image/png',
         version: '1.1.1',
         transparent: true,
-        crs: const Epsg4326(),
+        crs: const Epsg3857(),
       ),
       userAgentPackageName: AppConstants.packageId,
     );
@@ -559,24 +703,47 @@ class _MapScreenState extends State<MapScreen> {
   List<Marker> _buildMarkers(MapViewModel vm, NavigationViewModel nav) {
     final markers = <Marker>[];
     // Posisi sendiri: panah berputar mengikuti heading.
+    // F-R1: marker tidak ikut berputar bersama peta (flutter_map
+    // menempelkan marker tegak di layar), jadi sudutnya harus
+    // heading + rotasi peta agar panah tetap menunjuk arah maju
+    // yang benar di layar. F-L11: bila heading tidak diketahui
+    // (null), tampilkan marker NETRAL (lingkaran, tanpa arah) —
+    // panah ke utara (heading 0) saat diam menyesatkan.
     final own = vm.ownPosition;
     if (own != null) {
-      final heading = vm.effectiveHeading ?? 0;
+      final heading = vm.effectiveHeading;
       markers.add(
         Marker(
           point: own,
           width: 40,
           height: 40,
-          child: Transform.rotate(
-            angle: heading * math.pi / 180,
-            child: OwnShipMarker(manual: vm.positionIsManual),
-          ),
+          child: heading == null
+              ? OwnShipMarker(
+                  manual: vm.positionIsManual,
+                  neutral: true,
+                )
+              : Transform.rotate(
+                  angle: (heading + vm.rotation) * math.pi / 180,
+                  child: OwnShipMarker(manual: vm.positionIsManual),
+                ),
         ),
       );
     }
     // Waypoint (angka urut) — ketuk membuka daftar titik.
+    // RONDE 2 (S-15, laporan E): bila rute tampil (visibleRoute),
+    // titik dalam rute dinomori SESUAI URUTAN RUTE (bukan indeks
+    // daftar global) + warna oranye, agar angka marker cocok dengan
+    // garis rute; titik di luar rute tetap nomor global + biru.
+    final visibleRoute = nav.visibleRoute;
     for (var i = 0; i < nav.waypoints.length; i++) {
       final wp = nav.waypoints[i];
+      final routeIndex = visibleRoute == null
+          ? -1
+          : visibleRoute.waypointIds.indexOf(wp.id);
+      final inRoute = routeIndex >= 0;
+      final label = inRoute ? '${routeIndex + 1}' : '${i + 1}';
+      final markerColor =
+          inRoute ? Colors.orange.shade700 : Colors.blue.shade700;
       markers.add(
         Marker(
           point: LatLng(wp.latitude, wp.longitude),
@@ -586,13 +753,13 @@ class _MapScreenState extends State<MapScreen> {
             onTap: () => showNavigationSheet(context, initialTab: 0),
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.blue.shade700,
+                color: markerColor,
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 2),
               ),
               alignment: Alignment.center,
               child: Text(
-                '${i + 1}',
+                label,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,
@@ -724,22 +891,52 @@ class _MapScreenState extends State<MapScreen> {
               ? 24.0
               : 30.0;
       for (final vessel in vessels.take(cap)) {
+        // F-L1: status per kapal dari resolver ECDIS (tidur/aktif/
+        // berbahaya/hilang) + vektor kecepatan 6 menit skala peta
+        // + garis haluan. F-R1: sudut = heading + rotasi peta
+        // (marker tegak di layar, peta yang berputar); tanpa
+        // heading/COG, segitiga menunjuk utara layar (= rotasi).
+        final status = AisTargetStatusResolver.resolve(
+          vessel: vessel,
+          selectedMmsi: vm.selectedVessel?.mmsi,
+          own: vm.ownShipState,
+          cpaThresholdNm: vm.cpaThresholdNm,
+          tcpaThresholdMin: vm.tcpaThresholdMin,
+        );
+        final vectorPx = vessel.speedKnots == null
+            ? null
+            : ShipMarker.vectorPxFor(
+                sogKnots: vessel.speedKnots!,
+                zoom: vm.zoom,
+                latitude: vessel.latitude!,
+              );
+        final canvas = ShipMarker.canvasSize(
+          size: size,
+          status: status,
+          vectorLengthPx: vectorPx,
+        );
         final heading = vessel.headingDeg ?? vessel.courseDeg ?? 0;
         markers.add(
           Marker(
             point: LatLng(vessel.latitude!, vessel.longitude!),
-            width: size,
-            height: size * 1.4,
+            width: canvas.width,
+            height: canvas.height,
             child: GestureDetector(
               onTap: () {
                 vm.selectVessel(vessel);
                 showVesselSheet(context, vessel);
               },
               child: Transform.rotate(
-                angle: heading * math.pi / 180,
+                angle: (heading + vm.rotation) * math.pi / 180,
                 child: ShipMarker(
                   size: size,
                   selected: vm.selectedVessel?.mmsi == vessel.mmsi,
+                  status: status,
+                  headingDeg: vessel.headingDeg,
+                  courseDeg: vessel.courseDeg,
+                  speedKnots: vessel.speedKnots,
+                  rateOfTurn: vessel.rateOfTurn,
+                  vectorLengthPx: vectorPx,
                 ),
               ),
             ),
@@ -765,6 +962,31 @@ class _MapScreenState extends State<MapScreen> {
     vm.lookupDepth(point);
     showDepthSheet(context);
   }
+
+  /// Long-press: lembar waypoint/posisi manual — hanya di dalam
+  /// ASEAN. Di luar batas (hanya mungkin di irisan kecil tepi layar
+  /// pada zoom terendah) ditolak dengan pesan jelas, bukan crash.
+  /// Waypoint dari tombol "+" selalu di tengah peta sehingga selalu
+  /// di dalam batas; validasi di NavigationViewModel.addWaypoint
+  /// dilaporkan sebagai tindak lanjut ke pemilik file itu.
+  void _onMapLongPress(BuildContext context, LatLng point) {
+    if (!_isInAsean(point)) {
+      context.read<NoticeController>().show(
+            'Di luar kawasan ASEAN — waypoint hanya bisa dibuat di '
+            'dalam ASEAN.',
+          );
+      return;
+    }
+    showLongPressSheet(context, point);
+  }
+
+  /// Cek titik di dalam bbox ASEAN (perbandingan langsung dengan
+  /// konstanta — tanpa bergantung pada API LatLngBounds.contains).
+  static bool _isInAsean(LatLng point) =>
+      point.latitude >= AppConstants.aseanSouth &&
+      point.latitude <= AppConstants.aseanNorth &&
+      point.longitude >= AppConstants.aseanWest &&
+      point.longitude <= AppConstants.aseanEast;
 
   Future<void> _addWaypointAtCenter(
     MapViewModel vm,
@@ -1214,6 +1436,10 @@ class _PositionChip extends StatelessWidget {
     final pos = vm.ownPosition!;
     final sog = nav.sogKnots;
     final cog = nav.cogDeg;
+    // SOG tampil di _SpeedChip (hanya saat bergerak); di sini
+    // hanya COG, dan hanya saat bergerak (> 1 kt) agar COG
+    // goyangan GPS saat diam tidak tampil.
+    final moving = sog != null && sog > 1.0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -1224,9 +1450,52 @@ class _PositionChip extends StatelessWidget {
         '${NavMath.formatDecimal(pos.latitude, fractionDigits: 4)}, '
         '${NavMath.formatDecimal(pos.longitude, fractionDigits: 4)}'
         '${vm.positionIsManual ? ' (manual)' : ''}'
-        '${sog == null ? '' : ' · SOG ${sog.toStringAsFixed(1)} kt'}'
-        '${cog == null ? '' : ' · COG ${cog.toStringAsFixed(0)}°'}',
+        '${moving && cog != null ? ' · COG ${cog.toStringAsFixed(0)}°' : ''}',
         style: TextStyle(fontSize: 11, color: scheme.onSurface),
+      ),
+    );
+  }
+}
+
+/// Chip kecepatan kapal sendiri (SOG GPS): knot + km/jam.
+///
+/// Aturan tampil — HANYA saat bergerak (SOG > 1 knot):
+/// GPS diam bergetar ~0,1–0,5 knot, jadi ambang 1 knot memberi
+/// margin dari jitter tanpa menyembunyikan laju pelan (kapal
+/// jarang berlayar < 1 kt di luar manuver sandar). Bila GPS tidak
+/// tersedia / posisi manual, sogKnots null -> chip tidak tampil
+/// sama sekali (tanpa angka 0 yang menyesatkan). Saat diam chip
+/// HILANG (bukan redup): R-23 peta diutamakan — chip redup tetap
+/// memakan ruang + perhatian. Sumber: NavigationViewModel.sogKnots
+/// (GPS device, null saat tidak ada fix — terverifikasi dari kode:
+/// updatePosition mengeset null bila speed < 0, setManualPosition
+/// mengeset null, nilai awal null).
+class _SpeedChip extends StatelessWidget {
+  const _SpeedChip({required this.sogKnots});
+
+  final double sogKnots;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final kmh = NavMath.knotsToKmh(sogKnots);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.speed, size: 14, color: scheme.primary),
+          const SizedBox(width: 4),
+          Text(
+            '${sogKnots.toStringAsFixed(1)} kt · '
+            '${kmh.toStringAsFixed(1)} km/jam',
+            style: TextStyle(fontSize: 11, color: scheme.onSurface),
+          ),
+        ],
       ),
     );
   }
@@ -1251,9 +1520,11 @@ class _FirstUseHint extends StatelessWidget {
           children: [
             const Expanded(
               child: Text(
-                'Ketuk titik laut untuk kedalaman. Tahan peta untuk '
-                'waypoint / posisi manual. Menu Lainnya berisi titik, '
-                'rute, jejak, jangkar, angin, dan peta offline.',
+                'Angka kedalaman tampil langsung di peta saat peta '
+                'diperbesar. Ketuk titik laut untuk detail kedalaman. '
+                'Tahan peta untuk waypoint / posisi manual. Menu '
+                'Lainnya berisi titik, rute, jejak, jangkar, angin, '
+                'dan peta offline.',
                 style: TextStyle(fontSize: 13),
               ),
             ),

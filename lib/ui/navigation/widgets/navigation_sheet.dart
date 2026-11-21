@@ -6,10 +6,10 @@ import '../../../domain/models/waypoint.dart';
 import '../../../utils/nav_math.dart';
 import '../../map/view_models/map_viewmodel.dart';
 import '../view_models/navigation_viewmodel.dart';
+import 'manual_waypoint_dialog.dart';
 import 'route_builder_sheet.dart';
 import 'route_detail_sheet.dart';
 import 'track_detail_sheet.dart';
-import 'waypoint_dialog.dart';
 
 /// Lembar Titik & Rute & Jejak — tiga tab.
 /// [initialTab]: 0 = Titik, 1 = Rute, 2 = Jejak.
@@ -80,21 +80,42 @@ class _WaypointTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final nav = context.watch<NavigationViewModel>();
     final waypoints = nav.waypoints;
-    if (waypoints.isEmpty) {
-      return _EmptyState(
-        icon: Icons.add_location_alt,
-        title: 'Belum ada titik',
-        body: 'Ketuk-tahan peta lalu pilih "Tambah waypoint di sini", '
-            'atau pakai tombol + di peta untuk menambah titik di '
-            'tengah layar.',
-      );
-    }
-    return ListView.builder(
-      itemCount: waypoints.length,
-      itemBuilder: (context, index) {
-        final wp = waypoints[index];
-        return _WaypointTile(waypoint: wp, number: index + 1);
-      },
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+          child: FilledButton.icon(
+            onPressed: () async {
+              final result = await showManualWaypointDialog(context);
+              if (result == null || !context.mounted) return;
+              await context.read<NavigationViewModel>().addWaypoint(
+                    name: result.name,
+                    latitude: result.latitude,
+                    longitude: result.longitude,
+                  );
+            },
+            icon: const Icon(Icons.keyboard),
+            label: const Text('+ Tambah waypoint ketik'),
+          ),
+        ),
+        Expanded(
+          child: waypoints.isEmpty
+              ? const _EmptyState(
+                  icon: Icons.add_location_alt,
+                  title: 'Belum ada titik',
+                  body: 'Ketuk tombol di atas untuk mengetik nama + '
+                      'koordinat (desimal atau DMS), atau ketuk-tahan '
+                      'peta lalu pilih "Tambah waypoint di sini".',
+                )
+              : ListView.builder(
+                  itemCount: waypoints.length,
+                  itemBuilder: (context, index) {
+                    final wp = waypoints[index];
+                    return _WaypointTile(waypoint: wp, number: index + 1);
+                  },
+                ),
+        ),
+      ],
     );
   }
 }
@@ -200,16 +221,19 @@ class _WaypointTile extends StatelessWidget {
                   icon: Icons.edit,
                   label: 'Ubah',
                   onPressed: () async {
-                    final name = await showWaypointDialog(
+                    final result = await showManualWaypointDialog(
                       context,
-                      point: LatLng(waypoint.latitude, waypoint.longitude),
-                      initialName: waypoint.name,
-                      title: 'Ubah waypoint',
+                      existing: waypoint,
                     );
-                    if (name == null || !context.mounted) return;
+                    if (result == null || !context.mounted) return;
                     await context
                         .read<NavigationViewModel>()
-                        .renameWaypoint(waypoint.id, name);
+                        .updateWaypoint(
+                          id: waypoint.id,
+                          name: result.name,
+                          latitude: result.latitude,
+                          longitude: result.longitude,
+                        );
                   },
                 ),
                 _ActionButton(
@@ -263,7 +287,8 @@ class _RouteTab extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(
               'Butuh minimal 2 titik untuk membuat rute. Tambahkan '
-              'waypoint dulu dari peta (ketuk-tahan).',
+              'waypoint dulu dari tab Titik (ketik koordinat) atau '
+              'dari peta (ketuk-tahan).',
               style: TextStyle(
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,

@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 /// Legenda warna lapisan kedalaman GEBCO + catatan jujur:
 /// grid ~450 m (kasar), sungai tanpa data, dan sorot area dangkal
 /// per ambang TIDAK tersedia (GEBCO tidak bisa diwarnai per ambang
-/// dengan andal — ketuk titik laut untuk angka kedalaman).
+/// dengan andal — angka kedalaman tampil langsung di peta pada
+/// zoom 10 ke atas, atau ketuk titik laut untuk detailnya).
 class GebcoLegend extends StatelessWidget {
   const GebcoLegend({super.key});
 
@@ -52,7 +53,9 @@ class GebcoLegend extends StatelessWidget {
         Text(
           'Grid ~450 m — kasar, bukan sounding chart. Sungai tidak '
           'ada data kedalaman. Sorot area dangkal per ambang tidak '
-          'tersedia: ketuk titik laut untuk angka kedalamannya.',
+          'tersedia. Angka kedalaman tampil langsung di peta pada '
+          'zoom 10 ke atas (bisa dimatikan di atas); ketuk titik '
+          'laut untuk detail satu titik.',
           style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
         ),
       ],

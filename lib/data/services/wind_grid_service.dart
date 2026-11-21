@@ -7,22 +7,27 @@ import 'api_client.dart';
 
 /// Grid angin Open-Meteo Forecast untuk partikel angin (paket Windy).
 /// SATU request multi-lokasi (koordinat dipisah koma — respons menjadi
-/// list, sesuai dokumentasi Open-Meteo). Grid 5 x 4 titik di atas
+/// list, sesuai dokumentasi Open-Meteo). Grid 7 x 5 titik di atas
 /// kotak pandang peta, 72 jam (3 hari), variabel angin saja.
+/// (Ronde 2: 5x4 -> 7x5 dan rentang 8° -> 14° — grid lama terlalu
+/// kasar sehingga partikel bergerak seragam tanpa bentuk aliran.)
 ///
 /// Bila respons multi-lokasi gagal dipahami, jatuh ke request per titik
-/// (maks 20, batch 5) — lebih lambat tapi tetap jalan.
+/// (maks 35, batch 5) — lebih lambat tapi tetap jalan.
 class WindGridService {
   WindGridService({ApiClient? client}) : _client = client ?? ApiClient();
 
   final ApiClient _client;
 
-  static const int columns = 5;
-  static const int rows = 4;
+  static const int columns = 7;
+  static const int rows = 5;
 
   /// Rentang grid maksimum (derajat) — di atas ini grid dipusatkan
   /// dan dipersempit (partikel di atas area raksasa tidak bermakna).
-  static const double maxSpanDeg = 8.0;
+  /// 14° menutupi seluruh layar pada zoom >= 7; pada tampilan
+  /// seluruh ASEAN (zoom ~3,5) partikel hanya menutupi 14° di tengah
+  /// — perbesar peta untuk cakupan penuh.
+  static const double maxSpanDeg = 14.0;
 
   Future<Result<WindGrid>> fetchGrid({
     required double south,
@@ -34,11 +39,17 @@ class WindGridService {
     final span = _clampedSpan(south: south, west: west, north: north, east: east);
     final lats = _linspace(span.$1, span.$3, rows);
     final lons = _linspace(span.$2, span.$4, columns);
+    // F-R2: Open-Meteo memasangkan lat/lon PER INDEKS dan
+    // mensyaratkan kedua list SAMA JUMLAH — mengirim 5 lat vs 7 lon
+    // membuat respons maksimal 5 lokasi / HTTP 400 sehingga jalur
+    // satu-request mati. Kirim 35 pasangan (dua list 35 elemen,
+    // urutan baris-per-baris yang sama dengan parseGrid).
+    final (pairedLats, pairedLons) = pairedCoordinates(lats, lons);
 
     final uri = Uri.parse('https://api.open-meteo.com/v1/forecast')
         .replace(queryParameters: {
-      'latitude': lats.map((v) => v.toStringAsFixed(4)).join(','),
-      'longitude': lons.map((v) => v.toStringAsFixed(4)).join(','),
+      'latitude': pairedLats.map((v) => v.toStringAsFixed(4)).join(','),
+      'longitude': pairedLons.map((v) => v.toStringAsFixed(4)).join(','),
       'hourly': 'wind_speed_10m,wind_direction_10m',
       'forecast_days': '3',
       'timezone': 'Asia/Jakarta',
@@ -92,10 +103,12 @@ class WindGridService {
         Exception('Grid angin tidak dapat dimuat. Coba lagi nanti.'),
       );
     }
-    // Jam diambil dari titik pertama yang punya data.
+    // Jam ASLI dari titik pertama yang punya data (F-R2: jam
+    // disimpan di tiap titik sejak _fetchOnePoint — jangan pernah
+    // mengarang jam dari DateTime.now() di sini).
     for (final p in points) {
-      if (p.windKmh.isNotEmpty) {
-        times = _timesFromPoint(p);
+      if (p.times.isNotEmpty) {
+        times = p.times;
         break;
       }
     }
@@ -135,6 +148,7 @@ class WindGridService {
         longitude: lon,
         windKmh: hours.map((h) => h.windKmh).toList(),
         windDirDeg: hours.map((h) => h.windDirDeg).toList(),
+        times: hours.map((h) => h.time).toList(),
       );
     } catch (_) {
       return null;
@@ -166,6 +180,7 @@ class WindGridService {
         longitude: lons[i % lons.length],
         windKmh: hours.map((h) => h.windKmh).toList(),
         windDirDeg: hours.map((h) => h.windDirDeg).toList(),
+        times: hours.map((h) => h.time).toList(),
       ));
     }
     return WindGrid(
@@ -178,18 +193,26 @@ class WindGridService {
     );
   }
 
-  /// Jam dari satu titik grid (disimpan tersembunyi di WindGridPoint?
-  /// tidak — jam diambil dari respons; helper ini dipakai fallback
-  /// per-titik dan mengembalikan daftar kosong bila tak tersedia).
-  /// Catatan: _fetchOnePoint tidak menyimpan jam; jam grid fallback
-  /// dibangun dari "sekarang" per jam — cukup untuk label timeline.
-  static List<DateTime> _timesFromPoint(WindGridPoint point) {
-    final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day, now.hour);
-    return List.generate(
-      point.windKmh.length,
-      (i) => start.add(Duration(hours: i)),
-    );
+  /// Pasangan lat/lon baris-per-baris untuk request multi-lokasi
+  /// Open-Meteo: dua list sama panjang (rows x columns), indeks i
+  /// = titik (lats[i ~/ columns], lons[i % columns]) — urutan yang
+  /// sama persis dengan yang diharapkan [parseGrid]. Dipakai juga
+  /// oleh [CurrentGridService] agar kedua grid berimpit.
+  /// (F-R2: tanpa pasangan ini, list 5 lat vs 7 lon membuat
+  /// Open-Meteo mengembalikan maksimal 5 lokasi.)
+  static (List<double>, List<double>) pairedCoordinates(
+    List<double> lats,
+    List<double> lons,
+  ) {
+    final pairedLats = <double>[];
+    final pairedLons = <double>[];
+    for (final lat in lats) {
+      for (final lon in lons) {
+        pairedLats.add(lat);
+        pairedLons.add(lon);
+      }
+    }
+    return (pairedLats, pairedLons);
   }
 
   /// Persempit kotak ke rentang maksimum, berpusat di tengah kotak.

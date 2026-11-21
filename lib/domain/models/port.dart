@@ -4,7 +4,10 @@ import '../../utils/nav_math.dart';
 /// Koordinat 8 pelabuhan pertama + Ambon dari report.md (terverifikasi);
 /// 6 lainnya adalah pusat kota (cukup untuk lompat peta + cuaca terdekat).
 /// Kode adm4 dari pemetaan adm2→adm4 repo Prakiraan-Cuaca-Indonesia-BMKG
-/// (report §10); 2 dari 15 dites live, sisanya dari pemetaan yang sama.
+/// (report §10); 15 dari 15 DITES LIVE 21 Nov 2026 ~18:20 WIB
+/// (api.bmkg.go.id/publik/prakiraan-cuaca?adm4=...): semua HTTP 200,
+/// adm4 respons cocok, kota/provinsi benar, 17–18 jam prakiraan —
+/// F-L8 SELESAI, tidak ada kode yang perlu diperbaiki.
 class Port {
   const Port({
     required this.name,

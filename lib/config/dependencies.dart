@@ -15,8 +15,11 @@ import '../data/repositories/weather_repository.dart';
 import '../data/repositories/windy_repository.dart';
 import '../data/services/compass_service.dart';
 import '../data/services/location_service.dart';
+import '../data/services/bluetooth_spp_transport.dart';
 import '../data/services/notification_service.dart';
 import '../data/services/settings_service.dart';
+import '../data/services/ship_ais_bluetooth_service.dart';
+import '../data/services/ship_ais_service.dart';
 import '../ui/core/widgets/notice_banner.dart';
 import '../ui/map/view_models/map_viewmodel.dart';
 import '../ui/navigation/view_models/navigation_viewmodel.dart';
@@ -35,7 +38,17 @@ List<SingleChildWidget> buildProviders({
   final weatherRepository = WeatherRepository(db: db);
   final marineRepository = MarineRepository(db: db);
   final depthRepository = DepthRepository(db: db);
-  final aisRepository = AisRepository();
+  // RONDE 2 (S-8): sumber AIS kapal (Offline) — WiFi TCP/UDP + Bluetooth
+  // SPP. Dibuat SEBELUM AisRepository karena repository menerima
+  // keduanya sebagai parameter (merge stream kapal ke peta yang sama).
+  final shipAisService = ShipAisService(prefs: prefs);
+  final shipAisBluetoothService = ShipAisBluetoothService(
+    transport: FlutterBluetoothSerialPlusTransport(),
+  );
+  final aisRepository = AisRepository(
+    shipAisService: shipAisService,
+    shipAisBluetoothService: shipAisBluetoothService,
+  );
   final mapDataRepository = MapDataRepository();
   final navigationRepository = NavigationRepository(db: db);
   final locationService = LocationService();
@@ -76,6 +89,12 @@ List<SingleChildWidget> buildProviders({
     Provider<MarineRepository>.value(value: marineRepository),
     Provider<DepthRepository>.value(value: depthRepository),
     Provider<AisRepository>.value(value: aisRepository),
+    Provider<ShipAisService>.value(value: shipAisService),
+    // Nullable agar panel bisa membaca null bila Bluetooth tidak
+    // diaktifkan di build tertentu (saat ini selalu ada — S-8).
+    Provider<ShipAisBluetoothService?>.value(
+      value: shipAisBluetoothService,
+    ),
     Provider<MapDataRepository>.value(value: mapDataRepository),
     Provider<NavigationRepository>.value(value: navigationRepository),
     Provider<SafetyRepository>.value(value: safetyRepository),

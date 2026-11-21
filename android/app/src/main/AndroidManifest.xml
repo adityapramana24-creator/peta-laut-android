@@ -5,6 +5,18 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <!-- Notifikasi lokal (alarm jangkar + peringatan cuaca, Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Bluetooth Classic SPP — AIS kapal offline, RONDE 2 (S-8).
+         SCAN/CONNECT untuk Android 12+; BLUETOOTH/BLUETOOTH_ADMIN
+         (maxSdk 30) untuk Android 11 ke bawah. Pindai tidak dipakai
+         untuk lokasi (neverForLocation). Izin runtime diminta lewat
+         plugin (ensurePermissions) saat user menekan Sambungkan. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
     <application
         android:label="Peta Laut"
         android:name="${applicationName}"

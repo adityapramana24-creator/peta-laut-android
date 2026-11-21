@@ -5,12 +5,24 @@ import 'package:flutter/material.dart';
 
 import '../../../domain/models/windy.dart';
 import '../../../utils/map_projection.dart';
+import 'wind_legend.dart';
 
 /// Overlay partikel angin animasi di atas peta (paket Windy, R-30).
-/// Partikel bergerak mengikuti grid angin (interpolasi bilinear).
+/// Partikel bergerak mengikuti grid angin (interpolasi bilinear) dan
+/// meninggalkan JEJAK (5 segmen) agar bentuk aliran terlihat —
+/// gaya Windy: gerakan + arah terbaca dari streak, kecepatan dari
+/// warna garis (lihat [WindColorScale]) dan panjang jejak.
 /// Kecepatan tampilan diperbesar agar gerakan terlihat — ini
 /// visualisasi arah/kekuatan angin, bukan simulasi fisik.
 /// IgnorePointer: gesture peta tetap jalan.
+///
+/// Diagnosis ronde 2 (kenapa dulu "ga keliatan bentuknya"):
+/// (1) tiap partikel hanya 1 segmen 1-frame (maks ~2 px pada angin
+/// 10 m/s; pada angin tropis 5 km/jam hanya 0,28 px/frame sehingga
+/// DISARING aturan <0,5 px dan tidak digambar sama sekali);
+/// (2) warna monokrom (putih + biru tua) tanpa skala kecepatan;
+/// (3) grid 5x4 / 8° terlalu kasar — seluruh partikel bergerak
+/// hampir seragam; (4) di zoom ASEAN grid hanya menutupi 14° tengah.
 class WindParticlesOverlay extends StatefulWidget {
   const WindParticlesOverlay({
     super.key,
@@ -38,21 +50,32 @@ class _Particle {
     required this.lat,
     required this.lon,
     required this.maxAge,
-  })  : prevLat = lat,
-        prevLon = lon;
+  });
 
   double lat;
   double lon;
-  double prevLat;
-  double prevLon;
   double speedKmh = 0;
   int age = 0;
   final int maxAge;
+
+  /// Jejak posisi terakhir (lat/lon), kepala di akhir daftar.
+  final List<double> trailLat = [];
+  final List<double> trailLon = [];
 }
 
 class _WindParticlesOverlayState extends State<WindParticlesOverlay> {
-  static const _count = 120;
+  static const _count = 220;
   static const _tick = Duration(milliseconds: 50);
+
+  /// Panjang jejak (titik). 6 titik = 5 segmen: pada langkah minimum
+  /// 1,2 px/frame jejak ~6 px; pada 50 km/jam ~29 px.
+  static const _trailLength = 6;
+
+  /// Langkah layar minimum per frame (px): angin lemah pun tetap
+  /// menunjukkan arah. Di atas ini langkah sebanding kecepatan
+  /// (0,35 px per m/s per frame).
+  static const _minStepPx = 1.2;
+  static const _pxPerMs = 0.35;
 
   final _random = math.Random();
   final _particles = <_Particle>[];
@@ -143,23 +166,33 @@ class _WindParticlesOverlayState extends State<WindParticlesOverlay> {
         final dirFromDeg = wind.$2;
         p.speedKmh = speedKmh;
         final speedMs = speedKmh / 3.6;
-        // Komponen gerak udara (arah MENUJU = dari + 180).
-        final dirRad = dirFromDeg * math.pi / 180;
-        final uMs = -speedMs * math.sin(dirRad); // ke timur
-        final vMs = -speedMs * math.cos(dirRad); // ke utara
-        // Perbesaran tampilan: angin 10 m/s -> ~2 px/frame.
-        final latRad = p.lat * math.pi / 180;
-        final pxPerMeter = 256 * math.pow(2, widget.zoom) /
-            40075016 /
-            math.cos(latRad).clamp(0.2, 1.0);
-        final exaggeration = 4 / pxPerMeter;
-        final dt = _tick.inMilliseconds / 1000.0;
-        final dMetersEast = uMs * dt * exaggeration;
-        final dMetersNorth = vMs * dt * exaggeration;
-        p.prevLat = p.lat;
-        p.prevLon = p.lon;
-        p.lat += dMetersNorth / 111320.0;
-        p.lon += dMetersEast / (111320.0 * math.cos(latRad));
+        if (speedMs > 0.05) {
+          // Komponen gerak udara (arah MENUJU = dari + 180).
+          final dirRad = dirFromDeg * math.pi / 180;
+          final uMs = -speedMs * math.sin(dirRad); // ke timur
+          final vMs = -speedMs * math.cos(dirRad); // ke utara
+          // Langkah layar: minimal 1,2 px/frame (arah tetap terbaca
+          // pada angin lemah), selebihnya sebanding kecepatan.
+          // Dikonversi ke meter lewat pxPerMeter agar langkah layar
+          // konsisten di semua zoom.
+          final latRad = p.lat * math.pi / 180;
+          final pxPerMeter = 256 * math.pow(2, widget.zoom) /
+              40075016 /
+              math.cos(latRad).clamp(0.2, 1.0);
+          final stepPx = math.max(_minStepPx, speedMs * _pxPerMs);
+          final stepMeters = stepPx / pxPerMeter;
+          final dMetersEast = uMs / speedMs * stepMeters;
+          final dMetersNorth = vMs / speedMs * stepMeters;
+          p.lat += dMetersNorth / 111320.0;
+          p.lon += dMetersEast / (111320.0 * math.cos(latRad));
+        }
+        // Perpanjang jejak dengan posisi terbaru.
+        p.trailLat.add(p.lat);
+        p.trailLon.add(p.lon);
+        while (p.trailLat.length > _trailLength) {
+          p.trailLat.removeAt(0);
+          p.trailLon.removeAt(0);
+        }
         // Keluar layar -> respawn.
         final (x, y) = MapProjection.latLonToScreen(
           latitude: p.lat,
@@ -232,47 +265,49 @@ class _ParticlesPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (final p in particles) {
-      final (x1, y1) = MapProjection.latLonToScreen(
-        latitude: p.prevLat,
-        longitude: p.prevLon,
-        centerLat: centerLat,
-        centerLon: centerLon,
-        zoom: zoom,
-        rotationDeg: rotationDeg,
-        screenWidth: screenSize.width,
-        screenHeight: screenSize.height,
-      );
-      final (x2, y2) = MapProjection.latLonToScreen(
-        latitude: p.lat,
-        longitude: p.lon,
-        centerLat: centerLat,
-        centerLon: centerLon,
-        zoom: zoom,
-        rotationDeg: rotationDeg,
-        screenWidth: screenSize.width,
-        screenHeight: screenSize.height,
-      );
-      if ((x2 - x1).abs() < 0.5 && (y2 - y1).abs() < 0.5) continue;
-      // Makin kencang makin terang.
-      final alpha = (0.25 + p.speedKmh / 60).clamp(0.25, 0.9);
-      // Garis putih tebal di bawah (terbaca di basemap gelap),
-      // garis biru tua di atas (terbaca di basemap terang).
-      canvas.drawLine(
-        Offset(x1, y1),
-        Offset(x2, y2),
-        Paint()
-          ..color = Colors.white.withValues(alpha: alpha * 0.6)
-          ..strokeWidth = 3
-          ..strokeCap = StrokeCap.round,
-      );
-      canvas.drawLine(
-        Offset(x1, y1),
-        Offset(x2, y2),
-        Paint()
-          ..color = const Color(0xFF1A5276).withValues(alpha: alpha)
-          ..strokeWidth = 1.5
-          ..strokeCap = StrokeCap.round,
-      );
+      if (p.trailLat.length < 2) continue;
+      // Proyeksikan seluruh jejak ke layar sekali jalan.
+      final points = <Offset>[];
+      for (var i = 0; i < p.trailLat.length; i++) {
+        final (x, y) = MapProjection.latLonToScreen(
+          latitude: p.trailLat[i],
+          longitude: p.trailLon[i],
+          centerLat: centerLat,
+          centerLon: centerLon,
+          zoom: zoom,
+          rotationDeg: rotationDeg,
+          screenWidth: screenSize.width,
+          screenHeight: screenSize.height,
+        );
+        points.add(Offset(x, y));
+      }
+      final color = WindColorScale.colorForKmh(p.speedKmh);
+      final segments = points.length - 1;
+      // Dua pass: halo putih di bawah (terbaca di basemap gelap
+      // maupun terang), garis warna di atas (kecepatan terbaca).
+      for (var pass = 0; pass < 2; pass++) {
+        final isHalo = pass == 0;
+        for (var i = 0; i < segments; i++) {
+          final a = points[i];
+          final b = points[i + 1];
+          if ((b.dx - a.dx).abs() < 0.5 &&
+              (b.dy - a.dy).abs() < 0.5) {
+            continue;
+          }
+          // Ekor memudar, kepala paling terang.
+          final fade = (i + 1) / segments;
+          final alpha = isHalo ? 0.35 * fade : 0.9 * (0.35 + 0.65 * fade);
+          canvas.drawLine(
+            a,
+            b,
+            Paint()
+              ..color = (isHalo ? Colors.white : color)
+                  .withValues(alpha: alpha)
+              ..strokeWidth = isHalo ? 4.0 : 2.2
+              ..strokeCap = StrokeCap.round,
+          );
+        }
+      }
     }
   }
 

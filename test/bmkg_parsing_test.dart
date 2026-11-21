@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:peta_laut/config/app_constants.dart';
 import 'package:peta_laut/domain/models/weather.dart';
 
 /// Fixture sintetis tapi SESUAI BENTUK respons asli BMKG
@@ -116,5 +117,16 @@ void main() {
     expect(restored.days.length, 3);
     expect(restored.days[0][1].condition, 'Hujan Ringan');
     expect(restored.days[0][1].windKnots, closeTo(9.99, 0.01));
+  });
+
+  test('URL gelombang BMKG: https absolut, host bmkg.go.id, path gelombang',
+      () {
+    // Pengaman regresi ronde 2 item 3: URL lama menunjuk homepage SPA
+    // maritim.bmkg.go.id yang di koneksi lambat tampak kosong.
+    final uri = Uri.parse(AppConstants.bmkgWaveUrl);
+    expect(uri.isAbsolute, isTrue);
+    expect(uri.scheme, 'https');
+    expect(uri.host.endsWith('bmkg.go.id'), isTrue);
+    expect(uri.path, contains('gelombang'));
   });
 }

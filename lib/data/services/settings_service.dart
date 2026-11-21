@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../config/app_constants.dart';
 import '../../domain/models/map_layers.dart';
 
 /// Pengaturan persisten (SharedPreferences) + ChangeNotifier agar
@@ -18,8 +19,9 @@ class SettingsService extends ChangeNotifier {
   static const _keyShowRain = 'show_rain';
   static const _keyShowGibs = 'show_gibs';
   static const _keyShowAis = 'show_ais';
+  static const _keyShowDepthLabels = 'show_depth_labels';
   static const _keyFirstUseHintShown = 'first_use_hint_shown';
-  static const _keyDefaultPortAdm4 = 'default_port_adm4';
+  static const _keyCruiseSpeedKnots = 'cruise_speed_knots';
 
   ThemeMode get themeMode {
     final raw = _prefs.getString(_keyThemeMode);
@@ -59,6 +61,7 @@ class SettingsService extends ChangeNotifier {
       showRain: _prefs.getBool(_keyShowRain) ?? false,
       showGibs: _prefs.getBool(_keyShowGibs) ?? false,
       showAis: _prefs.getBool(_keyShowAis) ?? true,
+      showDepthLabels: _prefs.getBool(_keyShowDepthLabels) ?? true,
     );
   }
 
@@ -69,6 +72,7 @@ class SettingsService extends ChangeNotifier {
     await _prefs.setBool(_keyShowRain, settings.showRain);
     await _prefs.setBool(_keyShowGibs, settings.showGibs);
     await _prefs.setBool(_keyShowAis, settings.showAis);
+    await _prefs.setBool(_keyShowDepthLabels, settings.showDepthLabels);
     notifyListeners();
   }
 
@@ -79,10 +83,20 @@ class SettingsService extends ChangeNotifier {
     await _prefs.setBool(_keyFirstUseHintShown, true);
   }
 
-  String? get defaultPortAdm4 => _prefs.getString(_keyDefaultPortAdm4);
+  /// Kecepatan jelajah (knot) untuk ETA rute — kecepatan terakhir
+  /// yang dipakai user saat menyimpan/mengubah rute. Default 8 knot
+  /// (AppConstants.defaultSpeedKnots); dijepit 1–50 knot.
+  double get cruiseSpeedKnots {
+    final v = _prefs.getDouble(_keyCruiseSpeedKnots);
+    if (v == null) return AppConstants.defaultSpeedKnots;
+    return v.clamp(1.0, 50.0).toDouble();
+  }
 
-  Future<void> setDefaultPortAdm4(String adm4) async {
-    await _prefs.setString(_keyDefaultPortAdm4, adm4);
+  Future<void> setCruiseSpeedKnots(double knots) async {
+    await _prefs.setDouble(
+      _keyCruiseSpeedKnots,
+      knots.clamp(1.0, 50.0).toDouble(),
+    );
     notifyListeners();
   }
 }

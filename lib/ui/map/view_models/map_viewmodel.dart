@@ -9,12 +9,15 @@ import '../../../config/app_constants.dart';
 import '../../../data/repositories/ais_repository.dart';
 import '../../../data/repositories/depth_repository.dart';
 import '../../../data/repositories/map_data_repository.dart';
+import '../../../data/services/ais_alert_settings.dart';
 import '../../../data/services/compass_service.dart';
 import '../../../data/services/gebco_service.dart';
 import '../../../data/services/location_service.dart';
 import '../../../data/services/settings_service.dart';
+import '../../../domain/models/ais_target_status.dart';
 import '../../../domain/models/map_layers.dart';
 import '../../../domain/models/vessel.dart';
+import '../../../utils/cpa_math.dart';
 import '../../../utils/nav_math.dart';
 import '../../../utils/result.dart';
 import '../../core/widgets/notice_banner.dart';
@@ -45,11 +48,17 @@ class MapViewModel extends ChangeNotifier {
         _navigationViewModel = navigationViewModel {
     _settingsService.addListener(_onSettingsChanged);
     _compassService.headingNotifier.addListener(_onHeadingChanged);
-    _aisRepository.vesselsStream.listen((vessels) {
+    _aisVesselsSub = _aisRepository.vesselsStream.listen((vessels) {
       _vessels = vessels;
+      // Ambang bahaya bisa berubah dari Pengaturan (AisViewModel
+      // menyimpan ke prefs) — segarkan salinan lokal tiap ada
+      // update kapal agar status peta + peringatan memakai ambang
+      // terbaru tanpa restart.
+      unawaited(_refreshAisThresholds());
+      _maybeWarnDangerous();
       notifyListeners();
     });
-    _aisRepository.connectionState.listen((state) {
+    _aisStateSub = _aisRepository.connectionState.listen((state) {
       _aisState = state;
       notifyListeners();
     });
@@ -73,11 +82,14 @@ class MapViewModel extends ChangeNotifier {
   bool _aisConnected = false;
 
   // -- Kamera (cermin state peta) --
+  // B §e-4: selaras konstanta ASEAN (pusat bbox + zoom awal) —
+  // MapScreen memakai initialCameraFit sehingga nilai ini hanya
+  // dipakai sebelum event kamera pertama (mis. fallback bbox AIS).
   LatLng _center = const LatLng(
-    AppConstants.defaultLat,
-    AppConstants.defaultLon,
+    AppConstants.aseanCenterLat,
+    AppConstants.aseanCenterLon,
   );
-  double _zoom = AppConstants.defaultZoom;
+  double _zoom = AppConstants.aseanInitialZoom;
   double _rotation = 0;
   LatLngBounds? _visibleBounds;
 
@@ -111,6 +123,20 @@ class MapViewModel extends ChangeNotifier {
   Timer? _aisBoundsTimer;
   LatLng? _lastAisCenter;
   double? _lastAisZoom;
+  StreamSubscription<Map<int, Vessel>>? _aisVesselsSub;
+  StreamSubscription<AisConnectionState>? _aisStateSub;
+
+  /// Ambang target berbahaya (F-L1) — dimuat dari
+  /// AisAlertSettings saat init + disegarkan tiap update kapal.
+  double _cpaThresholdNm =
+      AisTargetStatusResolver.defaultCpaThresholdNm;
+  double _tcpaThresholdMin =
+      AisTargetStatusResolver.defaultTcpaThresholdMin;
+
+  /// Throttle peringatan target berbahaya (F-L1): hanya saat
+  /// target berubah, atau paling sering 1x per 60 detik.
+  int? _lastDangerMmsi;
+  DateTime? _lastDangerNoticeAt;
 
   // -- Hint --
   bool _hintDismissed = false;
@@ -138,6 +164,32 @@ class MapViewModel extends ChangeNotifier {
   Map<int, Vessel> get vessels => _vessels;
   AisConnectionState get aisState => _aisState;
   Vessel? get selectedVessel => _selectedVessel;
+
+  /// Ambang target berbahaya saat ini (untuk status marker peta).
+  double get cpaThresholdNm => _cpaThresholdNm;
+  double get tcpaThresholdMin => _tcpaThresholdMin;
+
+  /// Keadaan kapal sendiri untuk hitungan CPA/status target (F-L1):
+  /// posisi GPS + SOG/COG dari NavigationViewModel (satu sumber
+  /// posisi — nilainya sama dengan yang dipakai vessel_sheet /
+  /// ais_panel), fallback ke course/speed GPS mentah bila nav
+  /// tidak terpasang. Null bila posisi sendiri belum diketahui.
+  OwnShipState? get ownShipState {
+    final pos = _ownPosition;
+    if (pos == null) return null;
+    final nav = _navigationViewModel;
+    final sog = nav?.sogKnots ??
+        (_gpsSpeedMs == null
+            ? null
+            : NavMath.msToKnots(_gpsSpeedMs!));
+    final cog = nav?.cogDeg ?? _gpsCourseDeg;
+    return OwnShipState(
+      latitude: pos.latitude,
+      longitude: pos.longitude,
+      sogKnots: sog,
+      cogDeg: cog,
+    );
+  }
 
   bool get showFirstUseHint =>
       !_hintDismissed && !_settingsService.firstUseHintShown;
@@ -168,6 +220,7 @@ class MapViewModel extends ChangeNotifier {
   Future<void> init() async {
     if (_initialized) return;
     _initialized = true;
+    await _refreshAisThresholds();
     await _compassService.start();
     // Bila izin sudah diberikan sebelumnya, stream GPS langsung jalan.
     if (await _locationService.hasPermission) {
@@ -225,7 +278,10 @@ class MapViewModel extends ChangeNotifier {
         lastZoom == null || (_zoom - lastZoom).abs() > 1.0;
     if (!centerMoved && !zoomMoved) return;
     _aisBoundsTimer?.cancel();
-    _aisBoundsTimer = Timer(const Duration(seconds: 1), () {
+    // Debounce 1,5 detik (F-L1): batas AISStream maks 1
+    // subscription/detik — 1 detik terlalu mepet bila timer +
+    // update bounds lain berdekatan.
+    _aisBoundsTimer = Timer(const Duration(milliseconds: 1500), () {
       _aisRepository.updateBounds(_boundsForAis());
       _lastAisCenter = _center;
       _lastAisZoom = _zoom;
@@ -235,11 +291,14 @@ class MapViewModel extends ChangeNotifier {
   (double, double, double, double) _boundsForAis() {
     final bounds = _visibleBounds;
     if (bounds == null) {
+      // Fallback ±2° (F-L1): ±20° lama melanggar semangat batas
+      // bandwidth AISStream (koneksi tak terkompresi dibatasi) dan
+      // membanjiri peta dengan kapal jauh yang tidak relevan.
       return (
-        _center.latitude - 20,
-        _center.longitude - 20,
-        _center.latitude + 20,
-        _center.longitude + 20,
+        _center.latitude - 2,
+        _center.longitude - 2,
+        _center.latitude + 2,
+        _center.longitude + 2,
       );
     }
     return (
@@ -306,7 +365,7 @@ class MapViewModel extends ChangeNotifier {
     if (_headingUp) _maybeRotateMap();
   }
 
-  /// Posisi manual: long-press peta / ketik koordinat (R-12).
+  /// Posisi manual: long-press peta / ketik koordinat (R-09).
   void setManualPosition(LatLng point) {
     _ownPosition = point;
     _ownAccuracyM = null;
@@ -346,7 +405,11 @@ class MapViewModel extends ChangeNotifier {
     if (_headingUp) {
       final heading = effectiveHeading;
       if (heading != null) {
-        _mapController?.rotate(heading);
+        // F-R1: rotate() memutar peta SEARAH jarum jam sebesar
+        // sudutnya — agar arah maju (heading) menunjuk ke ATAS
+        // layar, peta harus diputar -heading. rotate(+heading)
+        // justru membuat arah maju menunjuk ke BAWAH layar.
+        _mapController?.rotate(-heading);
         _lastRotatedHeading = heading;
         _lastRotateTime = DateTime.now();
       } else {
@@ -389,7 +452,8 @@ class MapViewModel extends ChangeNotifier {
         (heading - _lastRotatedHeading!).abs() <= 2.0) {
       return;
     }
-    controller.rotate(heading);
+    // F-R1: tanda minus — lihat toggleHeadingUp.
+    controller.rotate(-heading);
     _lastRotatedHeading = heading;
     _lastRotateTime = now;
   }
@@ -420,6 +484,14 @@ class MapViewModel extends ChangeNotifier {
   Future<void> toggleGibs(bool value) async {
     await _settingsService
         .setLayerSettings(layers.copyWith(showGibs: value));
+  }
+
+  /// Saklar label angka kedalaman (F-L9): tersimpan di
+  /// LayerSettings, cermin toggleGebco.
+  Future<void> toggleDepthLabels(bool value) async {
+    await _settingsService.setLayerSettings(
+      layers.copyWith(showDepthLabels: value),
+    );
   }
 
   Future<void> toggleAis(bool value) async {
@@ -477,6 +549,60 @@ class MapViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Muat ambang bahaya dari AisAlertSettings. Dipanggil di init
+  /// + tiap update kapal (ambang bisa berubah dari Pengaturan).
+  /// Hanya notify bila nilainya berubah (hindari rebuild per kapal).
+  Future<void> _refreshAisThresholds() async {
+    final (cpa, tcpa) = await AisAlertSettings().load();
+    if (cpa != _cpaThresholdNm || tcpa != _tcpaThresholdMin) {
+      _cpaThresholdNm = cpa;
+      _tcpaThresholdMin = tcpa;
+      notifyListeners();
+    }
+  }
+
+  /// Peringatan target berbahaya satu-slot (F-L1): bila ada target
+  /// berbahaya terdekat, tampilkan notice — HANYA saat targetnya
+  /// berubah atau sudah >= 60 detik sejak notice terakhir (throttle
+  /// anti-spam; NoticeController sendiri satu slot + hilang 5 dtk).
+  /// Diam bila tidak ada gerak sendiri (CPA tak bisa dihitung)
+  /// atau tidak ada target berbahaya.
+  void _maybeWarnDangerous() {
+    final own = ownShipState;
+    if (own == null) return;
+    final dangerous = AisTargetStatusResolver.nearestDangerous(
+      _vessels.values,
+      own: own,
+      cpaThresholdNm: _cpaThresholdNm,
+      tcpaThresholdMin: _tcpaThresholdMin,
+    );
+    if (dangerous == null) {
+      // Target berbahaya hilang — reset agar kemunculan berikutnya
+      // (target sama maupun baru) memberi notice lagi.
+      _lastDangerMmsi = null;
+      return;
+    }
+    final now = DateTime.now();
+    final changed = dangerous.mmsi != _lastDangerMmsi;
+    final due = _lastDangerNoticeAt == null ||
+        now.difference(_lastDangerNoticeAt!) >=
+            const Duration(seconds: 60);
+    if (!changed && !due) return;
+    _lastDangerMmsi = dangerous.mmsi;
+    _lastDangerNoticeAt = now;
+    final cpa = AisTargetStatusResolver.cpaFor(
+      vessel: dangerous,
+      own: own,
+    );
+    final cpaText = cpa == null
+        ? ''
+        : ' — CPA ${cpa.cpaNm.toStringAsFixed(2)} nm'
+            '${cpa.tcpaMinutes == null ? '' : ', ${cpa.tcpaMinutes!.toStringAsFixed(0)} mnt lagi'}';
+    _noticeController.show(
+      'Target berbahaya: ${dangerous.displayName}$cpaText.',
+    );
+  }
+
   // -- Hint --
 
   Future<void> dismissFirstUseHint() async {
@@ -492,6 +618,11 @@ class MapViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _aisBoundsTimer?.cancel();
+    // F-K5: batalkan subscription stream AIS (sebelumnya bocor —
+    // dampak diabaikan karena VM berumur seumur app, tapi benar
+    // tetap benar).
+    unawaited(_aisVesselsSub?.cancel());
+    unawaited(_aisStateSub?.cancel());
     _settingsService.removeListener(_onSettingsChanged);
     _compassService.headingNotifier.removeListener(_onHeadingChanged);
     _locationService.stopPositionStream();

@@ -11,6 +11,7 @@ import '../../navigation/view_models/navigation_viewmodel.dart';
 import '../view_models/windy_viewmodel.dart';
 import 'alert_dialog.dart';
 import 'meteogram_chart.dart';
+import 'wind_legend.dart';
 
 /// Panel Angin & Prakiraan (paket Windy, R-30): pilih model,
 /// partikel angin, prakiraan titik + meteogram, peringatan ambang.
@@ -150,6 +151,102 @@ class WindyPanel extends StatelessWidget {
                 label: const Text('Muat ulang grid untuk area ini'),
               ),
             ],
+            if (windy.particlesEnabled) ...[
+              const SizedBox(height: 8),
+              const WindLegend(),
+              Text(
+                'Warna garis = kecepatan angin; panjang jejak juga '
+                'bertambah saat angin kencang.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const Divider(height: 28),
+            // -- Panah arus --
+            Row(
+              children: [
+                const Icon(Icons.waves),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Panah arus di peta',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Switch(
+                  value: windy.currentsEnabled,
+                  onChanged: (value) async {
+                    final bounds = mapVm.visibleBounds ??
+                        boundsAround(mapVm.center);
+                    await windy.setCurrentsEnabled(
+                      value,
+                      bounds: bounds,
+                    );
+                  },
+                ),
+              ],
+            ),
+            if (windy.currentGridLoading)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Text('Memuat grid arus…'),
+                  ],
+                ),
+              ),
+            if (windy.currentGridError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Grid arus gagal: ${windy.currentGridError}',
+                  style: TextStyle(color: scheme.error, fontSize: 12),
+                ),
+              ),
+            if (windy.currentsEnabled && windy.currentGrid != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Grid arus · '
+                '${windy.currentGrid!.times.length} jam · '
+                'diambil ${IdFormat.timeHm(windy.currentGrid!.fetchedAt)} WIB',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: mapVm.visibleBounds == null
+                    ? null
+                    : () => windy.loadCurrentGrid(
+                          mapVm.visibleBounds!,
+                          forceRefresh: true,
+                        ),
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Muat ulang grid untuk area ini'),
+              ),
+            ],
+            if (windy.currentsEnabled) ...[
+              const SizedBox(height: 8),
+              const CurrentLegend(),
+              Text(
+                'Panah menunjuk ke arah arus mengalir; warna = '
+                'kecepatan. Model Open-Meteo resolusi ~8 km — tidak '
+                'untuk navigasi pantai dan tidak menggantikan almanak '
+                'nautika.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
             const Divider(height: 28),
             // -- Prakiraan titik --
             const Text(
@@ -241,8 +338,8 @@ class WindyPanel extends StatelessWidget {
             ),
             Text(
               'Diperiksa tiap 15 menit selama aplikasi terbuka, '
-              'terhadap prakiraan di titik terakhir. Maks 1 notifikasi '
-              'per 6 jam per peringatan.',
+              'terhadap prakiraan segar di posisi kapal saat ini. '
+              'Maks 1 notifikasi per 6 jam per peringatan.',
               style: TextStyle(
                 fontSize: 12,
                 color: scheme.onSurfaceVariant,

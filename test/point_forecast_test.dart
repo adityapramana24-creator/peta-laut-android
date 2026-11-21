@@ -131,6 +131,47 @@ void main() {
         isNull,
       );
     });
+
+    test('F-R2: tiap titik menyimpan jam ASLI respons (bukan karangan)', () {
+      final body = '[${pointJson(10, 90)}, ${pointJson(20, 90)}, '
+          '${pointJson(30, 90)}, ${pointJson(40, 90)}]';
+      final grid = WindGridService.parseGrid(
+        jsonDecode(body),
+        lats: [0.0, 1.0],
+        lons: [0.0, 1.0],
+        model: 'auto',
+      );
+      expect(grid, isNotNull);
+      // Jam dari JSON fixture: 08:00 + 09:00 (bukan "sekarang").
+      expect(grid!.times, [
+        DateTime(2026, 11, 21, 8),
+        DateTime(2026, 11, 21, 9),
+      ]);
+      for (final p in grid.points) {
+        expect(p.times, grid.times);
+      }
+    });
+  });
+
+  group('WindGridService.pairedCoordinates (F-R2)', () {
+    test('grid 7x5 -> dua list 35 elemen', () {
+      final lats = [0.0, 1.0, 2.0, 3.0, 4.0];
+      final lons = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0];
+      final (pairedLats, pairedLons) =
+          WindGridService.pairedCoordinates(lats, lons);
+      expect(pairedLats.length, 35);
+      expect(pairedLons.length, 35);
+    });
+
+    test('urutan baris-per-baris, sama dengan parseGrid', () {
+      final lats = [0.0, 1.0];
+      final lons = [10.0, 20.0, 30.0];
+      final (pairedLats, pairedLons) =
+          WindGridService.pairedCoordinates(lats, lons);
+      // Indeks i = titik (lats[i ~/ 3], lons[i % 3]).
+      expect(pairedLats, [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+      expect(pairedLons, [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]);
+    });
   });
 
   group('WindGrid.windAt', () {

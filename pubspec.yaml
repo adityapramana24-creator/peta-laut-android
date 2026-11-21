@@ -4,7 +4,7 @@ description: >-
   Peta interaktif, GPS, pasang surut, cuaca BMKG, gelombang,
   kedalaman GEBCO, dan AIS kapal. Semua data gratis.
 publish_to: none
-version: 1.1.0+2
+version: 1.2.0+3
 
 environment:
   sdk: '>=3.10.0 <4.0.0'
@@ -13,7 +13,8 @@ environment:
 # Versi minimum di bawah ini DIVERIFIKASI ADA di pub.dev pada 21 Nov 2026
 # (flutter_map 8.3.2, geolocator 14.1.2, permission_handler 13.0.2,
 # drift 2.35.4, fl_chart 1.3.1, flutter_secure_storage 11.2.0,
-# flutter_compass 0.8.1, flutter_local_notifications 19.4.2).
+# flutter_compass 0.8.1, flutter_local_notifications 19.4.2,
+# flutter_bluetooth_serial_plus 0.5.7 — RONDE 2, AIS kapal Bluetooth).
 # Caret (^) membiarkan pub memilih patch/minor terbaru dalam major
 # yang sama.
 dependencies:
@@ -21,6 +22,7 @@ dependencies:
     sdk: flutter
   drift: ^2.35.0
   fl_chart: ^1.3.0
+  flutter_bluetooth_serial_plus: ^0.5.7
   flutter_compass: ^0.8.0
   flutter_local_notifications: ^19.4.2
   flutter_map: ^8.3.2

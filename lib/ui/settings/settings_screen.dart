@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/app_constants.dart';
 import '../../data/local/app_database.dart';
+import '../../data/services/ais_alert_settings.dart';
 import '../../data/services/settings_service.dart';
 import '../../domain/models/map_layers.dart';
-import '../../domain/models/vessel.dart';
 import '../ais/view_models/ais_viewmodel.dart';
 import '../core/widgets/version_stamp.dart';
 import '../map/view_models/map_viewmodel.dart';
@@ -45,6 +46,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final settings = context.watch<SettingsService>();
     final layers = settings.layerSettings;
     final scheme = Theme.of(context).colorScheme;
+    // F-L6: saklar radar hujan harus lewat MapViewModel.toggleRain
+    // (satu-satunya jalur yang memuat template RainViewer) — bukan
+    // setLayerSettings langsung.
+    final mapVm = context.read<MapViewModel>();
 
     return ChangeNotifierProvider<AisViewModel>.value(
       value: _aisViewModel,
@@ -94,9 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile(
               title: const Text('Radar hujan'),
               value: layers.showRain,
-              onChanged: (v) => settings.setLayerSettings(
-                layers.copyWith(showRain: v),
-              ),
+              onChanged: mapVm.toggleRain,
             ),
             SwitchListTile(
               title: const Text('Citra satelit NASA'),
@@ -368,15 +371,118 @@ class _AisSection extends StatelessWidget {
               icon: const Icon(Icons.open_in_new, size: 16),
               label:
                   const Text('Daftar kunci gratis di aisstream.io'),
+              // F-L7: pola gagal-jujur seperti tautan BMKG
+              // (marine_panel): launchUrl langsung tanpa gate
+              // canLaunchUrl; bila gagal, SnackBar menampilkan URL
+              // + aksi Salin — jangan pernah gagal diam-diam.
               onPressed: () async {
-                final uri = Uri.parse(AppConstants.aisSignupUrl);
-                if (await canLaunchUrl(uri)) {
-                  await launchUrl(
+                final url = AppConstants.aisSignupUrl;
+                final uri = Uri.parse(url);
+                bool opened = false;
+                try {
+                  opened = await launchUrl(
                     uri,
                     mode: LaunchMode.externalApplication,
                   );
+                } catch (_) {
+                  opened = false;
                 }
+                if (opened || !context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Tidak bisa membuka browser. Salin alamat ini '
+                      'dan buka manual:\n$url',
+                    ),
+                    duration: const Duration(seconds: 8),
+                    action: SnackBarAction(
+                      label: 'Salin',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: url));
+                      },
+                    ),
+                  ),
+                );
               },
+            ),
+            const SizedBox(height: 8),
+            const Divider(),
+            const SizedBox(height: 8),
+            const Text(
+              'Cara ambil kunci gratis: buka aisstream.io di browser, '
+              'masuk dengan akun GitHub, buka Account lalu buat API key '
+              'baru (kunci hanya ditampilkan sekali — salin segera), '
+              'tempel di kolom di atas, ketuk Simpan kunci.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Ambang target berbahaya',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<double>(
+                    value: vm.cpaThresholdNm,
+                    decoration: const InputDecoration(
+                      labelText: 'CPA maksimum',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: AisAlertSettings.cpaOptionsNm
+                        .map(
+                          (v) => DropdownMenuItem(
+                            value: v,
+                            child: Text('$v nm'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) vm.setCpaThreshold(v);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<double>(
+                    value: vm.tcpaThresholdMin,
+                    decoration: const InputDecoration(
+                      labelText: 'TCPA maksimum',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: AisAlertSettings.tcpaOptionsMin
+                        .map(
+                          (v) => DropdownMenuItem(
+                            value: v,
+                            child: Text('${v.toInt()} mnt'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) vm.setTcpaThreshold(v);
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Target dengan CPA di bawah ambang dan TCPA di bawah '
+              'ambang ditandai merah sebagai berbahaya.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Catatan: koneksi aplikasi ini tanpa kompresi '
+              '(keterbatasan platform) — di area sangat ramai sebagian '
+              'pesan bisa terlewat.',
+              style: TextStyle(
+                fontSize: 12,
+                color: scheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),

@@ -133,6 +133,18 @@ class _AnchorMobSheetState extends State<AnchorMobSheet> {
                     ),
                   ),
                 ),
+              if (!nav.anchorAlarm && nav.anchorSilenced)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Alarm dibisukan — bunyi lagi bila kapal kembali '
+                    'ke dalam radius lalu keluar lagi.',
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,

@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:math' as math;
+
+import 'package:latlong2/latlong.dart';
 
 import '../../utils/result.dart';
 import '../local/app_database.dart';
@@ -18,6 +21,53 @@ class DepthRepository {
 
   String _key(double lat, double lon) =>
       'depth|${lat.toStringAsFixed(2)}|${lon.toStringAsFixed(2)}';
+
+  /// Kunci label per titik (dipakai overlay label kedalaman):
+  /// dibulatkan 0,0001° (~11 m) agar satu titik selalu memetakan
+  /// ke satu entri label.
+  static String labelKey(double lat, double lon) =>
+      '${lat.toStringAsFixed(4)}|${lon.toStringAsFixed(4)}';
+
+  /// Kedalaman banyak titik sekaligus (label kedalaman di peta).
+  /// GetFeatureInfo GEBCO hanya melayani satu titik per request —
+  /// tidak ada endpoint batch — jadi strategi hematnya: request
+  /// paralel terbatas (`concurrency`, default 4) + cache 30 hari
+  /// per titik (lihat [getDepth]) sehingga area yang pernah dibuka
+  /// tidak memicu request lagi. Titik yang gagal -> null (labelnya
+  /// dilewati, bukan angka 0).
+  ///
+  /// `onBatch` (F-L10): dipanggil tiap satu batch selesai agar
+  /// pemanggil bisa menampilkan label SECARA PROGRESIF per batch
+  /// (tanpa ini, area baru kosong ~10 detik sampai SEMUA titik
+  /// selesai). Nilai kembalian tetap berisi semua hasil.
+  Future<Map<String, DepthResult?>> getDepths(
+    List<LatLng> points, {
+    int concurrency = 4,
+    void Function(Map<String, DepthResult?> batch)? onBatch,
+  }) async {
+    final results = <String, DepthResult?>{};
+    final batchSize = concurrency < 1 ? 1 : concurrency;
+    for (var i = 0; i < points.length; i += batchSize) {
+      final chunk = points.sublist(
+        i,
+        math.min(i + batchSize, points.length),
+      );
+      final fetched = await Future.wait(chunk.map(
+        (p) => getDepth(latitude: p.latitude, longitude: p.longitude),
+      ));
+      final batch = <String, DepthResult?>{};
+      for (var j = 0; j < chunk.length; j++) {
+        final p = chunk[j];
+        batch[labelKey(p.latitude, p.longitude)] = switch (fetched[j]) {
+          Ok(value: final depth) => depth,
+          Error() => null,
+        };
+      }
+      results.addAll(batch);
+      onBatch?.call(batch);
+    }
+    return results;
+  }
 
   Future<Result<DepthResult>> getDepth({
     required double latitude,

@@ -94,7 +94,8 @@ class DepthSheet extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             'Sumber: GEBCO (grid ~450 m). Kedalaman laut/pantai saja — '
-            'sungai tidak terukur.',
+            'sungai tidak terukur. Angka kedalaman juga tampil '
+            'langsung di peta pada zoom 10 ke atas.',
             style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
           ),
         ],

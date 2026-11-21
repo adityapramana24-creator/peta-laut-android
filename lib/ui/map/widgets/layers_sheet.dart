@@ -5,7 +5,7 @@ import '../../../domain/models/map_layers.dart';
 import '../view_models/map_viewmodel.dart';
 import 'gebco_legend.dart';
 
-/// Lembar pengalih basemap + overlay (R-05, R-06).
+/// Lembar pengalih basemap + overlay (R-11).
 Future<void> showLayersSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
@@ -64,7 +64,10 @@ class LayersSheet extends StatelessWidget {
             const SizedBox(height: 8),
             SwitchListTile(
               title: const Text('Kedalaman GEBCO (warna laut)'),
-              subtitle: const Text('Pewarnaan batimetri global'),
+              subtitle: const Text(
+                'Pewarnaan batimetri global — redup agar peta dasar '
+                'tetap terbaca',
+              ),
               value: layers.showGebco,
               onChanged: vm.toggleGebco,
             ),
@@ -73,6 +76,16 @@ class LayersSheet extends StatelessWidget {
                 padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: GebcoLegend(),
               ),
+            SwitchListTile(
+              title: const Text('Angka kedalaman di peta'),
+              subtitle: const Text(
+                'Label meter langsung di peta (zoom 10 ke atas). '
+                'Nilai model GEBCO grid ~450 m, bukan sounding '
+                'survei; sungai tidak ada data.',
+              ),
+              value: layers.showDepthLabels,
+              onChanged: vm.toggleDepthLabels,
+            ),
             SwitchListTile(
               title: const Text('Rambu laut (OpenSeaMap)'),
               subtitle: const Text('Mercusuar, pelampung, rambu'),
@@ -87,7 +100,10 @@ class LayersSheet extends StatelessWidget {
             ),
             SwitchListTile(
               title: const Text('Citra satelit NASA'),
-              subtitle: const Text('MODIS Terra kemarin (zoom maks 9)'),
+              subtitle: const Text(
+                'MODIS Terra kemarin (zoom maks 9) — citra penuh, '
+                'menutupi basemap saat aktif',
+              ),
               value: layers.showGibs,
               onChanged: vm.toggleGibs,
             ),

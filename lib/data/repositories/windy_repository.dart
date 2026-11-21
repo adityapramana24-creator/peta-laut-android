@@ -7,6 +7,7 @@ import '../../domain/models/weather_alert.dart';
 import '../../domain/models/windy.dart';
 import '../../utils/nav_math.dart';
 import '../../utils/result.dart';
+import '../../utils/wib_clock.dart';
 import '../services/notification_service.dart';
 import '../services/wind_grid_service.dart';
 import 'marine_repository.dart';
@@ -36,6 +37,7 @@ class WindyRepository {
 
   static const _keyModel = 'windy_model';
   static const _keyParticles = 'windy_particles';
+  static const _keyCurrents = 'windy_currents';
   static const _keyAlerts = 'weather_alerts';
   static const _gridTtl = Duration(minutes: 30);
 
@@ -61,6 +63,13 @@ class WindyRepository {
 
   Future<void> setParticlesEnabled(bool value) async {
     await _prefs.setBool(_keyParticles, value);
+  }
+
+  /// Saklar panah arus (B §e-2): tersimpan, cermin particlesEnabled.
+  bool get currentsEnabled => _prefs.getBool(_keyCurrents) ?? false;
+
+  Future<void> setCurrentsEnabled(bool value) async {
+    await _prefs.setBool(_keyCurrents, value);
   }
 
   // -- Prakiraan titik gabungan --
@@ -182,7 +191,12 @@ class WindyRepository {
   Future<List<WeatherAlert>> evaluateAlerts(
     PointForecast forecast,
   ) async {
-    final now = DateTime.now();
+    // F-L4: jam prakiraan adalah wall-clock WIB — "sekarang" untuk
+    // jendela 24 jam memakai WibClock agar benar juga di WITA/WIT.
+    // (Cooldown 6 jam memakai selisih durasi sehingga tidak
+    // terpengaruh zona; lastTriggeredAt ditulis dengan jam yang
+    // sama agar konsisten.)
+    final now = WibClock.now();
     final horizon = now.add(const Duration(hours: 24));
     final triggered = <WeatherAlert>[];
     var changed = false;

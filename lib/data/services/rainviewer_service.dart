@@ -49,6 +49,10 @@ class RainViewerService {
     if (last is! Map<String, dynamic>) return null;
     final path = last['path'];
     if (path is! String) return null;
-    return '$host$path/{z}/{x}/{y}/256/2/1_1.png';
+    // F-R3: format resmi RainViewer (rainviewer.com/api):
+    // {path}/{size}/{z}/{x}/{y}/{color}/{options}.png — "256"
+    // HARUS sebelum z/x/y. Susunan lama ({z}/{x}/{y}/256/...)
+    // membuat semua tile radar 404 diam-diam.
+    return '$host$path/256/{z}/{x}/{y}/2/1_1.png';
   }
 }

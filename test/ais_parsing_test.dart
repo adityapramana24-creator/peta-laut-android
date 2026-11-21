@@ -153,4 +153,90 @@ void main() {
       'Kunci AIS belum diisi',
     );
   });
+
+  test('NavigationalStatus + ROT ter-parse', () {
+    final envelope =
+        jsonDecode(positionEnvelope) as Map<String, dynamic>;
+    final vessel = AisMessageParser.parse(envelope)!.updated;
+    expect(vessel.navStatus, 0);
+    expect(vessel.navStatusLabel, 'Berlayar');
+    expect(vessel.rateOfTurn, 0);
+    expect(vessel.isTurning, isFalse);
+  });
+
+  test('MetaData lat/lon jadi cadangan bila laporan tanpa posisi', () {
+    final envelope = {
+      'MetaData': {
+        'MMSI': 525001234,
+        'ShipName': 'KM NUSANTARA',
+        'latitude': -3.5,
+        'longitude': 114.7,
+      },
+      'Message': {
+        'PositionReport': {
+          'Sog': 12.3,
+          'Cog': 95.5,
+          'TrueHeading': 96,
+        },
+      },
+    };
+    final vessel = AisMessageParser.parse(envelope)!.updated;
+    expect(vessel.hasPosition, isTrue);
+    expect(vessel.latitude, -3.5);
+    expect(vessel.longitude, 114.7);
+  });
+
+  test('StandardClassBPositionReport ter-parse seperti Kelas A', () {
+    final envelope = {
+      'MetaData': {'MMSI': 525007777, 'ShipName': 'KM NELAYAN'},
+      'Message': {
+        'StandardClassBPositionReport': {
+          'Latitude': -5.0,
+          'Longitude': 110.0,
+          'Sog': 4.5,
+          'Cog': 270.0,
+          'TrueHeading': 271,
+        },
+      },
+    };
+    final vessel = AisMessageParser.parse(envelope)!.updated;
+    expect(vessel.latitude, -5.0);
+    expect(vessel.longitude, 110.0);
+    expect(vessel.speedKnots, 4.5);
+    expect(vessel.courseDeg, 270.0);
+    expect(vessel.headingDeg, 271);
+  });
+
+  test('ShipStaticData: dimensi + callsign + IMO', () {
+    final envelope = {
+      'MetaData': {'MMSI': 525001234},
+      'Message': {
+        'ShipStaticData': {
+          'Callsign': 'YB1234',
+          'Dimension': {'A': 150, 'B': 29, 'C': 14, 'D': 13},
+          'ImoNumber': 9123456,
+          'Name': 'KM NUSANTARA',
+          'Type': 70,
+        },
+      },
+    };
+    final vessel = AisMessageParser.parse(envelope)!.updated;
+    expect(vessel.lengthM, 179);
+    expect(vessel.beamM, 27);
+    expect(vessel.callsign, 'YB1234');
+    expect(vessel.imoNumber, 9123456);
+    expect(vessel.shipTypeLabel, 'Kapal kargo');
+  });
+
+  test('label tipe kapal + status navigasi', () {
+    const tanker = Vessel(mmsi: 1, shipType: 80, navStatus: 1);
+    expect(tanker.shipTypeLabel, 'Kapal tanker');
+    expect(tanker.navStatusLabel, 'Jangkar');
+    const fishing = Vessel(mmsi: 2, shipType: 30, navStatus: 7);
+    expect(fishing.shipTypeLabel, 'Kapal ikan');
+    expect(fishing.navStatusLabel, 'Menangkap ikan');
+    const unknown = Vessel(mmsi: 3);
+    expect(unknown.shipTypeLabel, isNull);
+    expect(unknown.navStatusLabel, isNull);
+  });
 }

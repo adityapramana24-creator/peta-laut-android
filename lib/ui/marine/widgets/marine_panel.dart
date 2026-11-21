@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../config/app_constants.dart';
+import '../../../config/sea_regions.dart';
 import '../../../domain/models/marine.dart';
 import '../../../utils/formatters.dart';
 import '../../../utils/nav_math.dart';
@@ -12,6 +14,8 @@ import '../view_models/marine_viewmodel.dart';
 
 /// Panel Gelombang (R-15): Open-Meteo Marine 3 hari + arus/swell/SST.
 /// Titik darat -> pesan "tidak ada data", BUKAN 0.
+/// Ronde 2: DITAMBAH ramalan per wilayah laut (titik tengah wilayah) —
+/// ramalan titik posisi user tetap ada dan tidak berubah perilakunya.
 Future<void> showMarinePanel(
   BuildContext context, {
   required LatLng point,
@@ -151,7 +155,12 @@ class _Body extends StatelessWidget {
           const SizedBox(height: 4),
           ...forecast.every3Hours.map(_MarineRow.new),
           const SizedBox(height: 8),
-          _BmkgWaveLink(),
+          _RegionSection(vm: vm),
+          const SizedBox(height: 8),
+          const _BmkgWebLink(
+            url: AppConstants.bmkgWaveUrl,
+            label: 'Prakiraan gelombang BMKG (web)',
+          ),
           DataSourceFooter(
             source: 'Open-Meteo Marine',
             fetchedAt: forecast.fetchedAt,
@@ -194,7 +203,12 @@ class _NoDataState extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
-          _BmkgWaveLink(),
+          _RegionSection(vm: vm),
+          const SizedBox(height: 8),
+          const _BmkgWebLink(
+            url: AppConstants.bmkgWaveUrl,
+            label: 'Prakiraan gelombang BMKG (web)',
+          ),
           DataSourceFooter(
             source: 'Open-Meteo Marine',
             fetchedAt: forecast.fetchedAt,
@@ -209,9 +223,13 @@ class _NoDataState extends StatelessWidget {
 }
 
 class _CurrentMarine extends StatelessWidget {
-  const _CurrentMarine({required this.hour});
+  const _CurrentMarine({required this.hour, this.category});
 
   final MarineHour hour;
+
+  /// Kategori gelombang resmi BMKG (mis. "Sedang") — ditampilkan bila
+  /// diberikan (ramalan wilayah). Ramalan titik tidak memakainya.
+  final String? category;
 
   @override
   Widget build(BuildContext context) {
@@ -245,6 +263,18 @@ class _CurrentMarine extends StatelessWidget {
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
+                      if (category != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Chip(
+                            label: Text('Kategori BMKG: $category'),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            labelPadding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -372,19 +402,183 @@ class _MarineRow extends StatelessWidget {
   }
 }
 
-/// Tautan prakiraan gelombang BMKG (BMKG tidak punya API gelombang).
-class _BmkgWaveLink extends StatelessWidget {
+/// Ramalan gelombang per wilayah laut (R-15, ronde 2).
+/// User memilih satu wilayah dari [kSeaRegions] → ramalan Open-Meteo
+/// Marine di TITIK TENGAH wilayah itu. UI menulis eksplisit bahwa ini
+/// ramalan titik tengah, BUKAN rata-rata wilayah, beserta koordinat
+/// titiknya. Ramalan titik posisi user di atas tidak tersentuh.
+class _RegionSection extends StatelessWidget {
+  const _RegionSection({required this.vm});
+
+  final MarineViewModel vm;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final region = vm.selectedRegion;
+    final regionForecast = vm.regionForecast;
+    final regionCurrent = regionForecast?.current;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        const Text(
+          'Gelombang per wilayah laut',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Pilih satu wilayah laut — ramalan dari Open-Meteo Marine '
+          'di titik tengah wilayah.',
+          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 8),
+        DropdownButton<SeaRegion>(
+          value: region,
+          hint: const Text('Pilih wilayah laut…'),
+          isExpanded: true,
+          items: kSeaRegions
+              .map(
+                (r) => DropdownMenuItem<SeaRegion>(
+                  value: r,
+                  child: Text(
+                    r.name,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              )
+              .toList(),
+          onChanged: (r) {
+            if (r != null) vm.loadRegion(r);
+          },
+        ),
+        if (region != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Titik tengah: '
+            '${NavMath.formatDecimal(region.latitude, fractionDigits: 2)}, '
+            '${NavMath.formatDecimal(region.longitude, fractionDigits: 2)}'
+            '${region.bmkgCode != null ? ' • Kode BMKG ${region.bmkgCode}' : ' • di luar pembagian wilayah BMKG'}',
+            style: TextStyle(
+              fontSize: 12,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const Text(
+            'Ramalan titik tengah wilayah — bukan rata-rata seluruh wilayah.',
+            style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+          ),
+          const SizedBox(height: 8),
+          if (vm.regionLoading && regionForecast == null)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 8),
+                    Text('Memuat ramalan wilayah…'),
+                  ],
+                ),
+              ),
+            ),
+          if (vm.regionErrorMessage != null && regionForecast == null)
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(vm.regionErrorMessage!, textAlign: TextAlign.center),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: vm.refreshRegion,
+                    child: const Text('Coba lagi'),
+                  ),
+                ],
+              ),
+            ),
+          if (regionForecast != null) ...[
+            if (!regionForecast.hasData)
+              const Text(
+                'Tidak ada data gelombang untuk titik tengah wilayah ini.',
+              ),
+            if (regionCurrent != null) ...[
+              _CurrentMarine(
+                hour: regionCurrent,
+                category: regionCurrent.waveHeightM == null
+                    ? null
+                    : bmkgWaveCategory(regionCurrent.waveHeightM!),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Per 3 jam (3 hari)',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              ...regionForecast.every3Hours.map(_MarineRow.new),
+            ],
+            DataSourceFooter(
+              source: 'Open-Meteo Marine',
+              fetchedAt: regionForecast.fetchedAt,
+              isStale: regionForecast.isStale,
+              onRefresh: vm.refreshRegion,
+              refreshing: vm.regionLoading,
+            ),
+          ],
+        ],
+        const SizedBox(height: 8),
+        const _BmkgWebLink(
+          url: kBmkgMaritimUrl,
+          label: 'Prakiraan resmi BMKG per wilayah (web)',
+        ),
+      ],
+    );
+  }
+}
+
+/// Tautan web BMKG (halaman resmi bmkg.go.id).
+/// Bila browser tidak bisa dibuka, tampilkan URL-nya agar user bisa
+/// membuka manual — jangan pernah gagal diam-diam (ronde 2, item 3).
+class _BmkgWebLink extends StatelessWidget {
+  const _BmkgWebLink({required this.url, required this.label});
+
+  final String url;
+  final String label;
+
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
       icon: const Icon(Icons.open_in_new, size: 16),
-      label: const Text('Prakiraan gelombang BMKG (web)'),
-      onPressed: () async {
-        final uri = Uri.parse(AppConstants.bmkgWaveUrl);
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
-      },
+      label: Text(label),
+      onPressed: () => _open(context),
+    );
+  }
+
+  Future<void> _open(BuildContext context) async {
+    final uri = Uri.parse(url);
+    bool opened = false;
+    try {
+      // launchUrl langsung tanpa gate canLaunchUrl: canLaunchUrl bisa
+      // false di perangkat tanpa browser default terdaftar, padahal
+      // launchUrl sendiri masih bisa membuka chooser browser.
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      opened = false;
+    }
+    if (opened || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Tidak bisa membuka browser. Salin alamat ini dan buka manual:\n$url',
+        ),
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Salin',
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: url));
+          },
+        ),
+      ),
     );
   }
 }

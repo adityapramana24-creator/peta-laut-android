@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../config/app_constants.dart';
 
-/// Stempel versi terlihat di UI (R-38): "v1.1 · 21 Nov 2026".
+/// Stempel versi terlihat di UI (R-38): "v1.2 · 21 Nov 2026".
 class VersionStamp extends StatelessWidget {
   const VersionStamp({super.key, this.onDark = false});
 

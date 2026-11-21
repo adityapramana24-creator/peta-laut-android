@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// Dial kompas di sudut peta: berputar berlawanan dengan rotasi peta
+/// Dial kompas di sudut peta: berputar mengikuti rotasi peta
 /// sehingga huruf "U" selalu menunjuk utara sejati di layar.
 /// Ketuk untuk beralih utara-ke-atas / heading-up.
 class CompassDial extends StatelessWidget {
@@ -34,9 +34,11 @@ class CompassDial extends StatelessWidget {
           child: Stack(
             alignment: Alignment.center,
             children: [
-              // Jarum utara berputar mengikuti -rotasi peta.
+              // Jarum utara berputar mengikuti +rotasi peta (F-R1):
+              // saat peta berputar θ searah jarum jam, arah utara
+              // di layar berada pada bearing +θ dari atas layar.
               Transform.rotate(
-                angle: -mapRotation * math.pi / 180,
+                angle: mapRotation * math.pi / 180,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [

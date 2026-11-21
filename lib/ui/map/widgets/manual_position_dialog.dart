@@ -22,7 +22,9 @@ Future<void> showManualPositionDialog(BuildContext context) {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Ketik lintang, bujur. Koma desimal boleh dipakai.',
+                  'Ketik lintang, bujur. Desimal (-3,32, 114,59) '
+                  'atau DMS (3°19\'12"S 114°35\'24"E). Koma desimal '
+                  'boleh dipakai.',
                   style: TextStyle(fontSize: 13),
                 ),
                 const SizedBox(height: 12),
@@ -55,6 +57,15 @@ Future<void> showManualPositionDialog(BuildContext context) {
                     setState(() {
                       error =
                           'Format tidak dikenal. Contoh: -3,32, 114,59';
+                    });
+                    return;
+                  }
+                  if (!CoordinateInput.isInAsean(parsed.$1, parsed.$2)) {
+                    setState(() {
+                      error =
+                          'Di luar kawasan ASEAN — posisi manual hanya '
+                          'di dalam ASEAN (lintang -11 sampai 29, '
+                          'bujur 92 sampai 141).';
                     });
                     return;
                   }

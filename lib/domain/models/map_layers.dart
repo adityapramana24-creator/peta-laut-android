@@ -83,6 +83,7 @@ class LayerSettings {
     this.showRain = false,
     this.showGibs = false,
     this.showAis = true,
+    this.showDepthLabels = true,
   });
 
   final BasemapKind basemap;
@@ -92,6 +93,9 @@ class LayerSettings {
   final bool showGibs;
   final bool showAis;
 
+  /// Label angka kedalaman di peta (F-L9, default nyala).
+  final bool showDepthLabels;
+
   LayerSettings copyWith({
     BasemapKind? basemap,
     bool? showGebco,
@@ -99,6 +103,7 @@ class LayerSettings {
     bool? showRain,
     bool? showGibs,
     bool? showAis,
+    bool? showDepthLabels,
   }) {
     return LayerSettings(
       basemap: basemap ?? this.basemap,
@@ -107,6 +112,7 @@ class LayerSettings {
       showRain: showRain ?? this.showRain,
       showGibs: showGibs ?? this.showGibs,
       showAis: showAis ?? this.showAis,
+      showDepthLabels: showDepthLabels ?? this.showDepthLabels,
     );
   }
 }

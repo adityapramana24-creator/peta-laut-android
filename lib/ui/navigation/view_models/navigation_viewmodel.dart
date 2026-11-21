@@ -11,6 +11,7 @@ import '../../../data/services/notification_service.dart';
 import '../../../domain/models/anchor_mob.dart';
 import '../../../domain/models/waypoint.dart';
 import '../../../utils/anchor_math.dart';
+import '../../../utils/coordinates.dart';
 import '../../../utils/nav_math.dart';
 import '../../../utils/track_stats.dart';
 import '../../core/widgets/notice_banner.dart';
@@ -96,6 +97,11 @@ class NavigationViewModel extends ChangeNotifier {
   // -- Alarm jangkar --
   AnchorSettings? _anchor;
   bool _anchorAlarm = false;
+
+  /// Alarm dibisukan lewat tombol "Diamkan" (F-L3): tetap diam
+  /// selama kapal di luar radius; dibersihkan saat kapal kembali ke
+  /// dalam radius, sehingga alarm bisa berbunyi lagi bila keluar.
+  bool _anchorSilenced = false;
   double? _anchorDistanceM;
 
   // -- MOB --
@@ -121,6 +127,7 @@ class NavigationViewModel extends ChangeNotifier {
   AnchorSettings? get anchor => _anchor;
   bool get anchorArmed => _anchor?.armed ?? false;
   bool get anchorAlarm => _anchorAlarm;
+  bool get anchorSilenced => _anchorSilenced;
   double? get anchorDistanceM => _anchorDistanceM;
   List<MobMark> get mobMarks => _mobMarks;
   RoutePlan? get visibleRoute => _visibleRoute;
@@ -221,11 +228,21 @@ class NavigationViewModel extends ChangeNotifier {
 
   // -- Waypoint --
 
-  Future<void> addWaypoint({
+  /// Simpan waypoint baru. Menolak koordinat di luar rentang atau
+  /// di luar kawasan ASEAN (laporan B §e-3) dengan pesan jelas dan
+  /// mengembalikan null — tidak ada yang tersimpan. Berhasil ->
+  /// waypoint yang tersimpan (dipakai pembangun rute untuk langsung
+  /// memasukkan titik ketik ke rute).
+  Future<Waypoint?> addWaypoint({
     required String name,
     required double latitude,
     required double longitude,
   }) async {
+    final error = _validateWaypointCoords(latitude, longitude);
+    if (error != null) {
+      _noticeController.show(error);
+      return null;
+    }
     final waypoint = Waypoint(
       id: 'wp_${DateTime.now().microsecondsSinceEpoch}',
       name: name.trim().isEmpty ? 'Titik ${_waypoints.length + 1}' : name.trim(),
@@ -235,6 +252,59 @@ class NavigationViewModel extends ChangeNotifier {
     );
     await _repository.saveWaypoint(waypoint);
     _noticeController.show('Titik "${waypoint.name}" tersimpan.');
+    return waypoint;
+  }
+
+  /// Ubah nama + koordinat waypoint yang sudah ada (dari form ketik).
+  /// Validasi sama dengan [addWaypoint]; false bila ditolak / tidak
+  /// ditemukan.
+  Future<bool> updateWaypoint({
+    required String id,
+    required String name,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final error = _validateWaypointCoords(latitude, longitude);
+    if (error != null) {
+      _noticeController.show(error);
+      return false;
+    }
+    Waypoint? existing;
+    for (final w in _waypoints) {
+      if (w.id == id) {
+        existing = w;
+        break;
+      }
+    }
+    if (existing == null) return false;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      _noticeController.show('Nama titik tidak boleh kosong.');
+      return false;
+    }
+    await _repository.saveWaypoint(existing.copyWith(
+      name: trimmed,
+      latitude: latitude,
+      longitude: longitude,
+    ));
+    _noticeController.show('Titik "$trimmed" diperbarui.');
+    return true;
+  }
+
+  /// Validasi koordinat waypoint: rentang global lalu bbox ASEAN.
+  /// Null = valid; else pesan Bahasa Indonesia untuk ditampilkan.
+  String? _validateWaypointCoords(double latitude, double longitude) {
+    if (latitude < -90 || latitude > 90) {
+      return 'Lintang harus -90 sampai 90.';
+    }
+    if (longitude < -180 || longitude > 180) {
+      return 'Bujur harus -180 sampai 180.';
+    }
+    if (!CoordinateInput.isInAsean(latitude, longitude)) {
+      return 'Di luar kawasan ASEAN — waypoint hanya bisa dibuat di '
+          'dalam ASEAN (lintang -11 sampai 29, bujur 92 sampai 141).';
+    }
+    return null;
   }
 
   Future<void> renameWaypoint(String id, String name) async {
@@ -267,7 +337,12 @@ class NavigationViewModel extends ChangeNotifier {
 
   Future<void> saveRoute(RoutePlan route) async {
     await _repository.saveRoute(route);
+    // Rute langsung tergambar di peta (garis + titik) begitu
+    // disimpan — tanpa ketukan "Tampilkan di peta" lagi (ronde 2).
+    _visibleRoute = route;
+    _visibleTrack = null;
     _noticeController.show('Rute "${route.name}" tersimpan.');
+    notifyListeners();
   }
 
   Future<void> deleteRoute(String id) async {
@@ -457,6 +532,7 @@ class NavigationViewModel extends ChangeNotifier {
       setAt: DateTime.now(),
     );
     _anchorAlarm = false;
+    _anchorSilenced = false;
     _anchorDistanceM = 0;
     await _safetyRepository.saveAnchor(_anchor!);
     unawaited(_notifications.requestPermission());
@@ -470,6 +546,7 @@ class NavigationViewModel extends ChangeNotifier {
     if (_anchor == null) return;
     _anchor = _anchor!.copyWith(armed: false);
     _anchorAlarm = false;
+    _anchorSilenced = false;
     _anchorDistanceM = null;
     await _safetyRepository.saveAnchor(_anchor!);
     _noticeController.show('Alarm jangkar dimatikan.');
@@ -479,6 +556,7 @@ class NavigationViewModel extends ChangeNotifier {
   Future<void> clearAnchor() async {
     _anchor = null;
     _anchorAlarm = false;
+    _anchorSilenced = false;
     _anchorDistanceM = null;
     await _safetyRepository.clearAnchor();
     notifyListeners();
@@ -496,7 +574,7 @@ class NavigationViewModel extends ChangeNotifier {
     );
     _anchorDistanceM = distance;
     final outside = distance > anchor.radiusM;
-    if (outside && !_anchorAlarm) {
+    if (outside && !_anchorAlarm && !_anchorSilenced) {
       _anchorAlarm = true;
       _noticeController.show(
         'Alarm jangkar! Kapal ${distance.toStringAsFixed(0)} m dari titik jangkar.',
@@ -505,15 +583,21 @@ class NavigationViewModel extends ChangeNotifier {
         body: 'Kapal ${distance.toStringAsFixed(0)} m dari titik jangkar '
             '(radius ${anchor.radiusM.toStringAsFixed(0)} m).',
       ));
-    } else if (!outside && _anchorAlarm) {
+    } else if (!outside && (_anchorAlarm || _anchorSilenced)) {
+      // Kembali ke dalam radius: alarm berhenti DAN bisu dibersihkan,
+      // sehingga alarm bisa berbunyi lagi bila keluar (F-L3).
       _anchorAlarm = false;
+      _anchorSilenced = false;
       _noticeController.show('Kapal kembali ke dalam radius jangkar.');
     }
   }
 
-  /// Matikan bunyi alarm (tetap bersenjata — bunyi lagi bila keluar).
+  /// Diamkan bunyi alarm (tetap bersenjata): diam selama kapal di
+  /// luar radius; bunyi lagi bila kapal kembali ke dalam radius lalu
+  /// keluar lagi (F-L3).
   void silenceAnchorAlarm() {
     _anchorAlarm = false;
+    _anchorSilenced = true;
     notifyListeners();
   }
 
