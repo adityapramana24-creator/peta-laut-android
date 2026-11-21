@@ -189,7 +189,9 @@ class _OfflineSheetState extends State<OfflineSheet> {
                     onPressed: tooWide || !offline.isOnline
                         ? null
                         : () => offline.saveCurrentArea(
-                              bounds: bounds,
+                              // Aman: tombol ini hanya ada di cabang range != null,
+                              // dan range hanya diisi bila bounds != null (di atas).
+                              bounds: bounds!,
                               zoom: mapVm.zoom,
                               basemap: basemap.name,
                               urlTemplate: basemap.urlTemplate,
