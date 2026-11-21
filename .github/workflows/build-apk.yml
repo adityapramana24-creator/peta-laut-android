@@ -74,10 +74,14 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+            # Gradle 9.3.1: AGP 9.1.1 menolak Gradle 9.1.0 saat assembleRelease
+      # ("Minimum supported Gradle version is 9.3.1", run #10). Langkah
+      # ini meregenerasi wrapper dan distributionUrl di setiap run,
+      # karena gradle-wrapper.jar tidak ada di repo.
       - name: Gradle wrapper (regenerasi bila jar tidak ada)
         run: |
           if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
-            cd android && gradle wrapper --gradle-version 9.1.0
+            cd android && gradle wrapper --gradle-version 9.3.1
           fi
 
       - name: Generate launcher icons (logo base64 -> mipmap PNG)
