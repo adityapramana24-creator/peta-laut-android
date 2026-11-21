@@ -66,6 +66,14 @@ jobs:
       - name: Flutter version
         run: flutter --version
 
+      # Pub get HARUS jalan sebelum pemanggilan Gradle apa pun:
+      # android/settings.gradle baris 4 membaca android/local.properties,
+      # dan file itu baru dibuat oleh `flutter pub get` (local.properties
+      # tidak ada di repo — gitignored). Run #1 gagal di langkah Gradle
+      # wrapper karena urutannya terbalik.
+      - name: Pub get
+        run: flutter pub get
+
       - name: Gradle wrapper (regenerasi bila jar tidak ada)
         run: |
           if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
@@ -76,9 +84,6 @@ jobs:
         run: |
           python3 -m pip install --quiet pillow
           python3 tools/generate_icons.py
-
-      - name: Pub get
-        run: flutter pub get
 
       - name: Codegen Drift (build_runner)
         run: dart run build_runner build --delete-conflicting-outputs
