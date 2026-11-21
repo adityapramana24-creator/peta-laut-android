@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../config/app_constants.dart';
+import '../../config/logo_data.dart';
 import '../core/widgets/version_stamp.dart';
 
 /// Layar splash: logo kapten + nama app + kredit + stempel versi.
@@ -18,8 +21,10 @@ class SplashScreen extends StatelessWidget {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(24),
-              child: Image.asset(
-                'assets/images/peta-laut-logo.webp',
+              child: Image.memory(
+                // Logo dari base64 (logo_data.dart): aset biner tidak bisa
+                // di-push via connector GitHub (snapshot UTF-8 saja).
+                base64Decode(logoBase64),
                 width: 180,
                 height: 180,
                 fit: BoxFit.cover,
