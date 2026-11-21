@@ -20,9 +20,9 @@ android {
         coreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_1_8
-    }
+    // (Blok kotlinOptions DIHAPUS: metode itu milik plugin kotlin-android
+    // yang dilarang di AGP 9.0+. AGP 9.0+ menyertakan dukungan Kotlin
+    // bawaan dan target JVM Kotlin mengikuti compileOptions di atas.)
 
     defaultConfig {
         applicationId = "id.prasmanan.petalaut"
