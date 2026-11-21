@@ -12,8 +12,13 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        // Java 17: AGP 9.0+ / Kotlin 2.4 menarget JVM 17 (toolchain JDK 17);
+        // target 1.8 membuat ':app:compileReleaseKotlin' gagal
+        // ("Inconsistent JVM Target Compatibility", run #12: Java 1.8 vs
+        // Kotlin 17). Kotlin TIDAK mengikuti compileOptions ini — ia
+        // memakai toolchain JDK — jadi Java harus disamakan ke 17.
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
         // Desugaring: flutter_local_notifications memakai API java.time
         // yang baru ada di API 26+; minSdk 24 butuh desugaring agar
         // kelas-kelas itu tersedia di Android 7–8.
@@ -21,8 +26,10 @@ android {
     }
 
     // (Blok kotlinOptions DIHAPUS: metode itu milik plugin kotlin-android
-    // yang dilarang di AGP 9.0+. AGP 9.0+ menyertakan dukungan Kotlin
-    // bawaan dan target JVM Kotlin mengikuti compileOptions di atas.)
+    // yang dilarang di AGP 9.0+. Koreksi S-28: asumsi S-21 bahwa target JVM
+    // Kotlin "mengikuti compileOptions" SALAH — log run #12 membuktikan
+    // Kotlin memakai toolchain JDK 17 sementara Java 1.8, dan build gagal.
+    // Yang disamakan adalah Java (compileOptions di atas -> 17), bukan Kotlin.)
 
     defaultConfig {
         applicationId = "id.prasmanan.petalaut"
