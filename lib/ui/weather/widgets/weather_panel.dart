@@ -348,10 +348,10 @@ IconData conditionIcon(String? condition) {
   final c = (condition ?? '').toLowerCase();
   if (c.contains('petir')) return Icons.thunderstorm;
   if (c.contains('hujan lebat')) return Icons.thunderstorm;
-  if (c.contains('hujan')) return Icons.rainy;
+  if (c.contains('hujan')) return Icons.umbrella;
   if (c.contains('kabut')) return Icons.foggy;
   if (c.contains('tebal')) return Icons.wb_cloudy;
-  if (c.contains('berawan')) return Icons.partly_cloudy_day;
+  if (c.contains('berawan')) return Icons.cloud_queue;
   if (c.contains('cerah')) return Icons.wb_sunny;
   return Icons.cloud;
 }

@@ -7,6 +7,7 @@ import '../../config/app_constants.dart';
 import '../../data/local/app_database.dart';
 import '../../data/services/settings_service.dart';
 import '../../domain/models/map_layers.dart';
+import '../../domain/models/vessel.dart';
 import '../ais/view_models/ais_viewmodel.dart';
 import '../core/widgets/version_stamp.dart';
 import '../map/view_models/map_viewmodel.dart';
